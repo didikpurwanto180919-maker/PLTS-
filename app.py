@@ -9,8 +9,8 @@ from streamlit_autorefresh import st_autorefresh
 # Konfigurasi Halaman Streamlit
 st.set_page_config(page_title="Monitoring PLTS 1.5 MWp", layout="wide")
 
-# Auto-refresh halaman setiap 60 detik agar otomatis mengikuti waktu real-time
-st_autorefresh(interval=60 * 1000, key="plts_live_refresh")
+# Auto-refresh halaman setiap 30 detik
+st_autorefresh(interval=30 * 1000, key="plts_live_refresh")
 
 st.title("☀️ Dashboard Monitoring Real-time PLTS 1.5 MWp")
 st.markdown("**Lokasi:** Pasuruan (-7.6453, 112.9075) | **Sumber Data:** Global Solar Atlas & Open-Meteo")
@@ -30,7 +30,7 @@ today_str = now_wib.strftime('%Y-%m-%d')
 
 st.sidebar.header("Status Sistem Live")
 st.sidebar.text(f"Waktu Server WIB:\n{now_wib.strftime('%Y-%m-%d %H:%M:%S')}")
-st.sidebar.success("Auto-refresh aktif (tiap 60 detik)")
+st.sidebar.success("Auto-refresh aktif (tiap 30 detik)")
 
 # Ambil Data Real-time dari API Open-Meteo
 url = f"https://api.open-meteo.com/v1/forecast?latitude={LAT}&longitude={LON}&hourly=shortwave_radiation,temperature_2m,weathercode&timezone=auto&start_date={today_str}&end_date={today_str}"
@@ -69,9 +69,10 @@ def calculate_power(row):
 df['power_mw'] = df.apply(calculate_power, axis=1)
 df['history_baseline_mw'] = df['ghi'] * (CAPACITY_MWP / 1000.0) * INVERTER_EFF
 
-# Batasi Realisasi Grafik Hanya Sampai Jam Saat Ini (Mencegah titik masa depan muncul)
+# Pemotongan Real-Time Presisi Berdasarkan Waktu Menit Saat Ini
 df_realtime = df.copy()
-df_realtime.loc[df_realtime['time'].dt.hour > now_wib.hour, 'power_mw'] = None
+# Mengubah data realisasi menjadi NaN jika waktu pada data melebihi waktu sistem saat ini
+df_realtime.loc[df_realtime['time'] > now_wib, 'power_mw'] = None
 
 # Visualisasi Grafik 1 Hari
 fig, ax = plt.subplots(figsize=(12, 5))
@@ -88,7 +89,7 @@ plt.tight_layout()
 
 st.pyplot(fig)
 
-# Ringkasan Data Tabel Real-time
+# Ringkasan Data Tabel Real-time (Hanya menampilkan data hingga jam saat ini)
 st.subheader(f"📋 Ringkasan Data Real-time (Update Terakhir: {now_wib.strftime('%H:%M')} WIB)")
-df_display = df[df['time'].dt.hour <= now_wib.hour][['time', 'ghi', 'temp_ambient', 'power_mw']]
+df_display = df[df['time'] <= now_wib][['time', 'ghi', 'temp_ambient', 'power_mw']]
 st.dataframe(df_display, use_container_width=True, hide_index=True)
