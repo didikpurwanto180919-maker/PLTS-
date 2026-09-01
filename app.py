@@ -10,8 +10,8 @@ from streamlit_autorefresh import st_autorefresh
 # Konfigurasi Halaman Streamlit
 st.set_page_config(page_title="Monitoring PLTS 1.5 MWp", layout="wide")
 
-# Auto-refresh halaman setiap 15 detik agar benar-benar responsif secara real-time
-st_autorefresh(interval=15 * 1000, key="plts_live_refresh")
+# Auto-refresh halaman setiap 1 detik
+st_autorefresh(interval=1 * 1000, key="plts_live_refresh")
 
 st.title("☀️ Dashboard Monitoring Real-time PLTS 1.5 MWp")
 st.markdown("**Lokasi:** Pasuruan (-7.6453, 112.9075) | **Sumber Data:** Global Solar Atlas & Open-Meteo")
@@ -31,9 +31,9 @@ today_str = now_wib.strftime('%Y-%m-%d')
 
 st.sidebar.header("Status Sistem Live")
 st.sidebar.text(f"Waktu Server WIB:\n{now_wib.strftime('%Y-%m-%d %H:%M:%S')}")
-st.sidebar.success("Auto-refresh aktif (tiap 15 detik)")
+st.sidebar.success("Auto-refresh aktif (tiap 1 detik)")
 
-# Ambil Data Real-time dari API Open-Meteo (Tanpa Cache)
+# Ambil Data Real-time dari API Open-Meteo
 url = f"https://api.open-meteo.com/v1/forecast?latitude={LAT}&longitude={LON}&hourly=shortwave_radiation,temperature_2m,weathercode&timezone=auto&start_date={today_str}&end_date={today_str}"
 
 response = requests.get(url)
@@ -74,7 +74,7 @@ def calculate_power(row):
 df_minutely['power_mw'] = df_minutely.apply(calculate_power, axis=1)
 df_minutely['history_baseline_mw'] = df_minutely['ghi'] * (CAPACITY_MWP / 1000.0) * INVERTER_EFF
 
-# Batasi Realisasi Hanya Sampai Menit Saat Ini (Presisi waktu sistem)
+# Batasi Realisasi Hanya Sampai Menit Saat Ini
 df_realtime = df_minutely.copy()
 df_realtime.loc[df_realtime['time'] > now_wib, 'power_mw'] = None
 
