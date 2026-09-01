@@ -1,6 +1,7 @@
 import requests
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 from datetime import datetime
 import pytz
 import streamlit as st
@@ -9,8 +10,8 @@ from streamlit_autorefresh import st_autorefresh
 # Konfigurasi Halaman Streamlit
 st.set_page_config(page_title="Monitoring PLTS 1.5 MWp", layout="wide")
 
-# Auto-refresh halaman setiap 30 detik
-st_autorefresh(interval=30 * 1000, key="plts_live_refresh")
+# Auto-refresh halaman setiap 15 detik agar benar-benar responsif secara real-time
+st_autorefresh(interval=15 * 1000, key="plts_live_refresh")
 
 st.title("☀️ Dashboard Monitoring Real-time PLTS 1.5 MWp")
 st.markdown("**Lokasi:** Pasuruan (-7.6453, 112.9075) | **Sumber Data:** Global Solar Atlas & Open-Meteo")
@@ -30,9 +31,9 @@ today_str = now_wib.strftime('%Y-%m-%d')
 
 st.sidebar.header("Status Sistem Live")
 st.sidebar.text(f"Waktu Server WIB:\n{now_wib.strftime('%Y-%m-%d %H:%M:%S')}")
-st.sidebar.success("Auto-refresh aktif (tiap 30 detik)")
+st.sidebar.success("Auto-refresh aktif (tiap 15 detik)")
 
-# Ambil Data Real-time dari API Open-Meteo
+# Ambil Data Real-time dari API Open-Meteo (Tanpa Cache)
 url = f"https://api.open-meteo.com/v1/forecast?latitude={LAT}&longitude={LON}&hourly=shortwave_radiation,temperature_2m,weathercode&timezone=auto&start_date={today_str}&end_date={today_str}"
 
 response = requests.get(url)
@@ -52,7 +53,7 @@ if df_hourly['time'].dt.tz is None:
 else:
     df_hourly['time'] = df_hourly['time'].dt.tz_convert('Asia/Jakarta')
 
-# Interpolasi Menjadi Per Menit agar Grafik Bergerak Real-time Presisi
+# Interpolasi Menjadi Per Menit agar Garis Bergerak Halus Real-time
 df_hourly = df_hourly.set_index('time')
 df_minutely = df_hourly.resample('1min').interpolate(method='linear').reset_index()
 
@@ -73,26 +74,31 @@ def calculate_power(row):
 df_minutely['power_mw'] = df_minutely.apply(calculate_power, axis=1)
 df_minutely['history_baseline_mw'] = df_minutely['ghi'] * (CAPACITY_MWP / 1000.0) * INVERTER_EFF
 
-# Batasi Realisasi Hanya Sampai Menit Saat Ini
+# Batasi Realisasi Hanya Sampai Menit Saat Ini (Presisi waktu sistem)
 df_realtime = df_minutely.copy()
 df_realtime.loc[df_realtime['time'] > now_wib, 'power_mw'] = None
 
-# Visualisasi Grafik 1 Hari (Format Sumbu X Jam:Menit)
+# Visualisasi Grafik 1 Hari dengan Format Waktu Bersih (Jam:Menit)
 fig, ax = plt.subplots(figsize=(12, 5))
 ax.plot(df_realtime['time'], df_realtime['power_mw'], color='orange', linewidth=2.5, label='Realisasi Real-time (MW)')
 ax.plot(df_minutely['time'], df_minutely['history_baseline_mw'], linestyle='--', color='gray', alpha=0.7, label='Baseline History / Rencana (MW)')
 
+# Mengatur Format Sumbu X agar Menampilkan Jam:Menit secara Rapi
+ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M', tz=wib_tz))
+ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
+
 ax.set_title(f'Grafik Produksi PLTS 1.5 MWp (Real-time WIB) - {today_str}', fontsize=12, fontweight='bold')
 ax.set_xlabel('Waktu (Jam Lokal WIB)', fontsize=10)
 ax.set_ylabel('Daya Output (MW)', fontsize=10)
+plt.xticks(rotation=0)
 ax.grid(True, linestyle=':', alpha=0.6)
 ax.legend(loc='upper left')
 plt.tight_layout()
 
 st.pyplot(fig)
 
-# Ringkasan Data Tabel (Per Jam untuk kemudahan baca)
-st.subheader(f"📋 Ringkasan Data Real-time (Update Terakhir: {now_wib.strftime('%H:%M')} WIB)")
+# Ringkasan Data Tabel Real-time
+st.subheader(f"📋 Ringkasan Data Real-time (Update Terakhir: {now_wib.strftime('%H:%M:%S')} WIB)")
 df_display_hourly = df_hourly.reset_index()
 df_display_hourly['power_mw'] = df_display_hourly.apply(calculate_power, axis=1)
 df_display = df_display_hourly[df_display_hourly['time'] <= now_wib][['time', 'ghi', 'temp_ambient', 'power_mw']]
