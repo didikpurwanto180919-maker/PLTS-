@@ -38,21 +38,25 @@ url = f"https://api.open-meteo.com/v1/forecast?latitude={LAT}&longitude={LON}&ho
 response = requests.get(url)
 data = response.json()
 
-# Parsing Data ke DataFrame Pandas
+# Parsing Data Hourly
 hourly_data = data['hourly']
-df = pd.DataFrame({
+df_hourly = pd.DataFrame({
     'time': pd.to_datetime(hourly_data['time']),
     'ghi': hourly_data['shortwave_radiation'],
     'temp_ambient': hourly_data['temperature_2m'],
     'weather_code': hourly_data['weathercode']
 })
 
-if df['time'].dt.tz is None:
-    df['time'] = df['time'].dt.tz_localize('Asia/Jakarta')
+if df_hourly['time'].dt.tz is None:
+    df_hourly['time'] = df_hourly['time'].dt.tz_localize('Asia/Jakarta')
 else:
-    df['time'] = df['time'].dt.tz_convert('Asia/Jakarta')
+    df_hourly['time'] = df_hourly['time'].dt.tz_convert('Asia/Jakarta')
 
-# Kalkulasi Daya PLTS (MW)
+# Interpolasi Menjadi Per Menit agar Grafik Bergerak Real-time Presisi
+df_hourly = df_hourly.set_index('time')
+df_minutely = df_hourly.resample('1min').interpolate(method='linear').reset_index()
+
+# Kalkulasi Daya PLTS (MW) untuk Setiap Menit
 def calculate_power(row):
     ghi = row['ghi']
     temp_amb = row['temp_ambient']
@@ -66,30 +70,30 @@ def calculate_power(row):
     
     return max(0.0, power_mw)
 
-df['power_mw'] = df.apply(calculate_power, axis=1)
-df['history_baseline_mw'] = df['ghi'] * (CAPACITY_MWP / 1000.0) * INVERTER_EFF
+df_minutely['power_mw'] = df_minutely.apply(calculate_power, axis=1)
+df_minutely['history_baseline_mw'] = df_minutely['ghi'] * (CAPACITY_MWP / 1000.0) * INVERTER_EFF
 
-# Pemotongan Real-Time Presisi Berdasarkan Waktu Menit Saat Ini
-df_realtime = df.copy()
-# Mengubah data realisasi menjadi NaN jika waktu pada data melebihi waktu sistem saat ini
+# Batasi Realisasi Hanya Sampai Menit Saat Ini
+df_realtime = df_minutely.copy()
 df_realtime.loc[df_realtime['time'] > now_wib, 'power_mw'] = None
 
-# Visualisasi Grafik 1 Hari
+# Visualisasi Grafik 1 Hari (Format Sumbu X Jam:Menit)
 fig, ax = plt.subplots(figsize=(12, 5))
-ax.plot(df_realtime['time'].dt.strftime('%H:%M'), df_realtime['power_mw'], marker='o', color='orange', linewidth=2.5, label='Realisasi Real-time (MW)')
-ax.plot(df['time'].dt.strftime('%H:%M'), df['history_baseline_mw'], linestyle='--', color='gray', alpha=0.7, label='Baseline History / Rencana (MW)')
+ax.plot(df_realtime['time'], df_realtime['power_mw'], color='orange', linewidth=2.5, label='Realisasi Real-time (MW)')
+ax.plot(df_minutely['time'], df_minutely['history_baseline_mw'], linestyle='--', color='gray', alpha=0.7, label='Baseline History / Rencana (MW)')
 
 ax.set_title(f'Grafik Produksi PLTS 1.5 MWp (Real-time WIB) - {today_str}', fontsize=12, fontweight='bold')
 ax.set_xlabel('Waktu (Jam Lokal WIB)', fontsize=10)
 ax.set_ylabel('Daya Output (MW)', fontsize=10)
-plt.xticks(rotation=45)
 ax.grid(True, linestyle=':', alpha=0.6)
 ax.legend(loc='upper left')
 plt.tight_layout()
 
 st.pyplot(fig)
 
-# Ringkasan Data Tabel Real-time (Hanya menampilkan data hingga jam saat ini)
+# Ringkasan Data Tabel (Per Jam untuk kemudahan baca)
 st.subheader(f"📋 Ringkasan Data Real-time (Update Terakhir: {now_wib.strftime('%H:%M')} WIB)")
-df_display = df[df['time'] <= now_wib][['time', 'ghi', 'temp_ambient', 'power_mw']]
+df_display_hourly = df_hourly.reset_index()
+df_display_hourly['power_mw'] = df_display_hourly.apply(calculate_power, axis=1)
+df_display = df_display_hourly[df_display_hourly['time'] <= now_wib][['time', 'ghi', 'temp_ambient', 'power_mw']]
 st.dataframe(df_display, use_container_width=True, hide_index=True)
