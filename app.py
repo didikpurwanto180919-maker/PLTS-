@@ -10,8 +10,8 @@ from streamlit_autorefresh import st_autorefresh
 # Konfigurasi Halaman Streamlit
 st.set_page_config(page_title="Monitoring PLTS 1.5 MWp", layout="wide")
 
-# Auto-refresh halaman setiap 1 detik
-st_autorefresh(interval=1 * 1000, key="plts_live_refresh")
+# Auto-refresh halaman setiap 10 detik secara presisi
+st_autorefresh(interval=10 * 1000, key="plts_live_refresh_10s")
 
 st.title("☀️ Dashboard Monitoring Real-time PLTS 1.5 MWp")
 st.markdown("**Lokasi:** Pasuruan (-7.6453, 112.9075) | **Sumber Data:** Global Solar Atlas & Open-Meteo")
@@ -31,7 +31,7 @@ today_str = now_wib.strftime('%Y-%m-%d')
 
 st.sidebar.header("Status Sistem Live")
 st.sidebar.text(f"Waktu Server WIB:\n{now_wib.strftime('%Y-%m-%d %H:%M:%S')}")
-st.sidebar.success("Auto-refresh aktif (tiap 1 detik)")
+st.sidebar.success("Auto-refresh aktif (tiap 10 detik)")
 
 # Ambil Data Real-time dari API Open-Meteo
 url = f"https://api.open-meteo.com/v1/forecast?latitude={LAT}&longitude={LON}&hourly=shortwave_radiation,temperature_2m,weathercode&timezone=auto&start_date={today_str}&end_date={today_str}"
@@ -53,7 +53,7 @@ if df_hourly['time'].dt.tz is None:
 else:
     df_hourly['time'] = df_hourly['time'].dt.tz_convert('Asia/Jakarta')
 
-# Interpolasi Menjadi Per Menit agar Garis Bergerak Halus Real-time
+# Interpolasi Menjadi Per Menit agar Garis Real-time Bergerak Halus
 df_hourly = df_hourly.set_index('time')
 df_minutely = df_hourly.resample('1min').interpolate(method='linear').reset_index()
 
@@ -78,12 +78,12 @@ df_minutely['history_baseline_mw'] = df_minutely['ghi'] * (CAPACITY_MWP / 1000.0
 df_realtime = df_minutely.copy()
 df_realtime.loc[df_realtime['time'] > now_wib, 'power_mw'] = None
 
-# Visualisasi Grafik 1 Hari dengan Format Waktu Bersih (Jam:Menit)
+# Visualisasi Grafik 1 Hari
 fig, ax = plt.subplots(figsize=(12, 5))
 ax.plot(df_realtime['time'], df_realtime['power_mw'], color='orange', linewidth=2.5, label='Realisasi Real-time (MW)')
 ax.plot(df_minutely['time'], df_minutely['history_baseline_mw'], linestyle='--', color='gray', alpha=0.7, label='Baseline History / Rencana (MW)')
 
-# Mengatur Format Sumbu X agar Menampilkan Jam:Menit secara Rapi
+# Format Sumbu X agar Rapi (Jam:Menit)
 ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M', tz=wib_tz))
 ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
 
