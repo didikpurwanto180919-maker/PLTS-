@@ -8,7 +8,7 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
 # ---------------------------------------------------------
-# 1. KONFIGURASI HALAMAN & CSS STYLING (DARK SCADA THEME)
+# 1. KONFIGURASI HALAMAN & CSS STYLING (LARGE HIGH-CONTRAST TEXT)
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="PLTS UBP GRATI 1.5 MWp",
@@ -19,11 +19,10 @@ st.set_page_config(
 # Auto-refresh tiap 10 detik
 st_autorefresh(interval=10 * 1000, key="plts_live_refresh_10s")
 
-# Inject Custom CSS Warna Menarik (Dark High-Contrast SCADA)
+# Inject Custom CSS dengan Font Besar dan Jelas
 st.markdown(
     """
 <style>
-    /* Background Utama */
     .stApp {
         background-color: #0b0f19;
         color: #e2e8f0;
@@ -32,82 +31,79 @@ st.markdown(
     .main-header {
         text-align: center;
         color: #38bdf8;
-        font-weight: 800;
+        font-weight: 900;
+        font-size: 32px;
         margin-bottom: 0px;
         padding-bottom: 0px;
-        letter-spacing: 1px;
-        text-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+        letter-spacing: 1.5px;
+        text-shadow: 0 0 12px rgba(56, 189, 248, 0.4);
     }
     .sub-header {
         text-align: center;
         color: #f59e0b;
-        font-weight: 700;
+        font-weight: 800;
+        font-size: 24px;
         margin-top: -5px;
         margin-bottom: 15px;
-        letter-spacing: 0.5px;
+        letter-spacing: 1px;
     }
     .banner-bar {
         background: linear-gradient(90deg, #1e293b 0%, #0f172a 50%, #1e293b 100%);
         border: 1px solid #334155;
         color: #38bdf8;
-        padding: 8px 18px;
+        padding: 10px 20px;
         font-weight: bold;
-        font-size: 14px;
-        border-radius: 6px;
+        font-size: 16px;
+        border-radius: 8px;
         display: flex;
         justify-content: space-between;
         margin-bottom: 20px;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
     }
     .scada-card {
-        border: 1px solid #1e293b;
-        border-left: 4px solid #38bdf8;
+        border: 1px solid #334155;
+        border-left: 5px solid #38bdf8;
         border-radius: 8px;
-        padding: 10px 14px;
+        padding: 12px 14px;
         background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
-        height: 85px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+        height: 100px;
         display: flex;
         flex-direction: column;
         justify-content: space-between;
         margin-bottom: 12px;
-        transition: transform 0.2s;
-    }
-    .scada-card:hover {
-        border-color: #38bdf8;
-        transform: translateY(-2px);
     }
     .scada-title {
-        font-size: 11px;
-        color: #94a3b8;
-        font-weight: 600;
+        font-size: 13px; /* Ditingkatkan dari 11px */
+        color: #cbd5e1;  /* Dibuat lebih terang */
+        font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.5px;
     }
     .scada-value {
-        font-size: 20px;
+        font-size: 24px; /* Ditingkatkan dari 20px */
         font-weight: bold;
-        color: #f8fafc;
+        color: #ffffff;
         text-align: right;
         font-family: 'Courier New', Courier, monospace;
     }
     .scada-unit {
-        font-size: 12px;
-        font-weight: normal;
+        font-size: 14px; /* Ditingkatkan dari 12px */
+        font-weight: bold;
         color: #38bdf8;
     }
     .info-box {
-        border: 1px solid #1e293b;
+        border: 1px solid #334155;
         border-radius: 8px;
-        padding: 16px;
+        padding: 18px;
         background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
         height: 100%;
-        font-size: 13px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
     }
     .info-table td {
-        padding: 4px 0;
-        color: #cbd5e1;
+        padding: 5px 0;
+        color: #f1f5f9;
+        font-size: 14px; /* Ditingkatkan dari 12px */
     }
 </style>
 """,
@@ -198,88 +194,87 @@ st.markdown(
 st.markdown(
     f"""
 <div class="banner-bar">
-    <span><span style="color:#94a3b8;">CCD :</span> <b style="color:#38bdf8;">66</b></span>
-    <span style="color:#f8fafc; letter-spacing:2px;">OVERVIEW MONITORING</span>
-    <span>{now_wib.strftime('%Y-%m-%d %H:%M:%S')}</span>
+    <span><span style="color:#cbd5e1;">CCD :</span> <b style="color:#38bdf8; font-size:18px;">66</b></span>
+    <span style="color:#f8fafc; letter-spacing:2px; font-size:18px;">OVERVIEW MONITORING</span>
+    <span style="font-size:16px;">{now_wib.strftime('%Y-%m-%d %H:%M:%S')}</span>
 </div>
 """,
     unsafe_allow_html=True,
 )
 
 # ---------------------------------------------------------
-# 4. GRAFIK DENGAN WARNA NEON HIGH-CONTRAST
+# 4. GRAFIK DENGAN FONT SUMBU & LEGENDA LEBIH BESAR
 # ---------------------------------------------------------
 col_left, col_right = st.columns([1.4, 1.0])
 
 with col_left:
-  # Konfigurasi Tema Gelap Matplotlib
   plt.style.use("dark_background")
-  fig, ax1 = plt.subplots(figsize=(8, 4.2))
+  fig, ax1 = plt.subplots(figsize=(8, 4.3))
   fig.patch.set_facecolor("#0b0f19")
   ax1.set_facecolor("#0f172a")
 
-  # Active Power (Cyan Neon)
+  # Active Power
   (line1,) = ax1.plot(
       df_realtime["time"],
       df_realtime["power_kw"],
       color="#00f2fe",
-      linewidth=2.5,
+      linewidth=3.0,
       label="Active Power (kW)",
   )
   ax1.fill_between(
       df_realtime["time"],
       df_realtime["power_kw"],
       color="#00f2fe",
-      alpha=0.15,
+      alpha=0.2,
   )
-  ax1.set_ylabel("Active Power (kW)", color="#00f2fe", fontsize=9, weight="bold")
-  ax1.tick_params(axis="y", labelcolor="#00f2fe", labelsize=8)
+  ax1.set_ylabel(
+      "Active Power (kW)", color="#00f2fe", fontsize=11, weight="bold"
+  )
+  ax1.tick_params(axis="y", labelcolor="#00f2fe", labelsize=10)
   ax1.set_ylim(0, 1600)
 
-  # Irradiance (Amber Gold Neon)
+  # Irradiance
   ax2 = ax1.twinx()
   (line2,) = ax2.plot(
       df_min["time"],
       df_min["ghi"],
       color="#fbbf24",
       linestyle="--",
-      linewidth=1.8,
+      linewidth=2.2,
       alpha=0.9,
       label="Irradiance (W/m²)",
   )
   ax2.set_ylabel(
-      "Irradiance (W/m²)", color="#fbbf24", fontsize=9, weight="bold"
+      "Irradiance (W/m²)", color="#fbbf24", fontsize=11, weight="bold"
   )
-  ax2.tick_params(axis="y", labelcolor="#fbbf24", labelsize=8)
+  ax2.tick_params(axis="y", labelcolor="#fbbf24", labelsize=10)
   ax2.set_ylim(0, 1250)
 
-  # Formatting Sumbu & Grid
+  # Formatting Sumbu X
   ax1.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M", tz=wib_tz))
   ax1.xaxis.set_major_locator(mdates.HourLocator(interval=2))
-  ax1.tick_params(axis="x", labelsize=8, colors="#94a3b8")
+  ax1.tick_params(axis="x", labelsize=10, colors="#f1f5f9")
   ax1.spines["top"].set_visible(False)
   ax2.spines["top"].set_visible(False)
-  ax1.spines["left"].set_color("#334155")
-  ax2.spines["right"].set_color("#334155")
 
   plt.title(
       "Active Power & Irradiance Trend",
-      fontsize=11,
+      fontsize=13,
       fontweight="bold",
       color="#f8fafc",
-      pad=12,
+      pad=14,
   )
-  ax1.grid(True, linestyle=":", alpha=0.2, color="#94a3b8")
+  ax1.grid(True, linestyle=":", alpha=0.3, color="#94a3b8")
 
-  # Legend Style
+  # Legend Style Besar
   ax1.legend(
       [line1, line2],
       ["Active Power (kW)", "Irradiance (W/m²)"],
       loc="lower center",
-      bbox_to_anchor=(0.5, -0.24),
+      bbox_to_anchor=(0.5, -0.27),
       ncol=2,
       frameon=False,
-      fontsize=8,
+      fontsize=10,
   )
 
   plt.tight_layout()
@@ -290,21 +285,21 @@ with col_right:
   st.markdown(
       f"""
     <div class="info-box">
-        <h4 style="margin-top:0; color:#38bdf8; font-size:14px; text-transform:uppercase; letter-spacing:1px;">Basic Information</h4>
-        <h3 style="margin-top:0; color:#f8fafc; font-size:16px;"><b>PLTS UBP Grati 1.5 MWp</b></h3>
-        <p style="color:#94a3b8; margin-bottom:12px; font-size:12px; line-height:1.4;">
+        <h4 style="margin-top:0; color:#38bdf8; font-size:16px; text-transform:uppercase; letter-spacing:1px; font-weight:800;">Basic Information</h4>
+        <h3 style="margin-top:0; color:#f8fafc; font-size:18px;"><b>PLTS UBP Grati 1.5 MWp</b></h3>
+        <p style="color:#94a3b8; margin-bottom:14px; font-size:13px; line-height:1.5;">
             Desa Wates, Jl. Raya Surabaya - Probolinggo KM.73<br>
             Lekok, Pasir Panjang, Wates, Kec. Lekok, Pasuruan<br>
             Jawa Timur 67186
         </p>
-        <table class="info-table" style="width:100%; border-collapse:collapse; font-size:12px;">
-            <tr><td><b>Status</b></td><td>: <span style="background-color:#166534; color:#4ade80; padding:2px 8px; border-radius:10px; font-weight:bold; font-size:11px;">● ONLINE</span></td></tr>
-            <tr><td><b>Total String Capacity</b></td><td>: <span style="color:#f8fafc;">1507.00 kWp</span></td></tr>
-            <tr><td><b>Grid Connection Date</b></td><td>: <span style="color:#f8fafc;">19 August 2021</span></td></tr>
-            <tr><td><b>Longitude & Latitude</b></td><td>: <span style="color:#f8fafc;">{LAT} & {LON}</span></td></tr>
-            <tr><td><b>PV System</b></td><td>: <span style="color:#f8fafc;">Ground-mounted large scale</span></td></tr>
-            <tr><td><b>Azimuth of PV Panels</b></td><td>: <span style="color:#f8fafc;">Default (0°)</span></td></tr>
-            <tr><td><b>Tilt of PV Panels</b></td><td>: <span style="color:#f8fafc;">10°</span></td></tr>
+        <table class="info-table" style="width:100%; border-collapse:collapse;">
+            <tr><td><b>Status</b></td><td>: <span style="background-color:#166534; color:#4ade80; padding:3px 10px; border-radius:12px; font-weight:bold; font-size:12px;">● ONLINE</span></td></tr>
+            <tr><td><b>Total String Capacity</b></td><td>: <span style="color:#f8fafc; font-weight:600;">1507.00 kWp</span></td></tr>
+            <tr><td><b>Grid Connection Date</b></td><td>: <span style="color:#f8fafc; font-weight:600;">19 August 2021</span></td></tr>
+            <tr><td><b>Longitude & Latitude</b></td><td>: <span style="color:#f8fafc; font-weight:600;">{LAT} & {LON}</span></td></tr>
+            <tr><td><b>PV System</b></td><td>: <span style="color:#f8fafc; font-weight:600;">Ground-mounted large scale</span></td></tr>
+            <tr><td><b>Azimuth of PV Panels</b></td><td>: <span style="color:#f8fafc; font-weight:600;">Default (0°)</span></td></tr>
+            <tr><td><b>Tilt of PV Panels</b></td><td>: <span style="color:#f8fafc; font-weight:600;">10°</span></td></tr>
         </table>
     </div>
     """,
@@ -314,7 +309,7 @@ with col_right:
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 5. METRICS GRID (DARK SCADA CARDS)
+# 5. METRICS GRID (CARD AKURASI TINGGI & FONT BESAR)
 # ---------------------------------------------------------
 
 
@@ -347,7 +342,7 @@ with r1_2:
 with r1_3:
   st.markdown(
       create_card(
-          "Cell Temperature", f"{curr_cell_temp:.2f}", "°C", "#f97316"
+          "Cell Temp", f"{curr_cell_temp:.2f}", "°C", "#f97316"
       ),
       unsafe_allow_html=True,
   )
