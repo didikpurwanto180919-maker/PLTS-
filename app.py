@@ -10,18 +10,18 @@ from streamlit_autorefresh import st_autorefresh
 # Konfigurasi Halaman Streamlit
 st.set_page_config(page_title="Monitoring PLTS 1.5 MWp", layout="wide")
 
-# Auto-refresh halaman setiap 10 detik
+# Auto-refresh halaman setiap 10 detik secara presisi
 st_autorefresh(interval=10 * 1000, key="plts_live_refresh_10s")
 
 st.title("☀️ Dashboard Monitoring Real-time PLTS 1.5 MWp")
 st.markdown(
-    "**Lokasi:** Pasuruan (-7.6453, 112.9075) | **Sumber Data:** Global Solar"
-    " Atlas & Open-Meteo"
+    "**Lokasi Presisi:** Pasuruan (-7.650046, 113.028266) | **Sistem:** Ground"
+    " Mounted (Tilt 10°) | **Sumber Data:** Global Solar Atlas & Open-Meteo"
 )
 
-# Parameter PLTS & Lokasi
-LAT = -7.6453
-LON = 112.9075
+# Parameter PLTS & Lokasi Presisi dari Global Solar Atlas
+LAT = -7.650046
+LON = 113.028266
 CAPACITY_MWP = 1.5
 TEMP_COEFF = -0.004
 NOCT = 45
@@ -34,9 +34,10 @@ today_str = now_wib.strftime("%Y-%m-%d")
 
 st.sidebar.header("Status Sistem Live")
 st.sidebar.text(f"Waktu Server WIB:\n{now_wib.strftime('%Y-%m-%d %H:%M:%S')}")
+st.sidebar.text(f"Koordinat: {LAT}, {LON}")
 st.sidebar.success("Auto-refresh aktif (tiap 10 detik)")
 
-# Ambil Data Real-time dari API Open-Meteo
+# Ambil Data Real-time dari API Open-Meteo berdasarkan koordinat presisi
 url = f"https://api.open-meteo.com/v1/forecast?latitude={LAT}&longitude={LON}&hourly=shortwave_radiation,temperature_2m,weathercode&timezone=auto&start_date={today_str}&end_date={today_str}"
 
 try:
@@ -64,7 +65,7 @@ try:
       df_hourly.resample("1min").interpolate(method="linear").reset_index()
   )
 
-  # Kalkulasi Daya PLTS (MW)
+  # Kalkulasi Daya PLTS (MW) untuk Setiap Menit
   def calculate_power(row):
     ghi = row["ghi"]
     temp_amb = row["temp_ambient"]
@@ -105,12 +106,12 @@ try:
       label="Baseline History / Rencana (MW)",
   )
 
-  # Format Sumbu X
+  # Format Sumbu X agar Rapi (Jam:Menit)
   ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M", tz=wib_tz))
   ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
 
   ax.set_title(
-      f"Grafik Produksi PLTS 1.5 MWp (Real-time WIB) - {today_str}",
+      f"Grafik Produksi PLTS 1.5 MWp (-7.650046, 113.028266) - {today_str}",
       fontsize=12,
       fontweight="bold",
   )
@@ -122,7 +123,7 @@ try:
   plt.tight_layout()
 
   st.pyplot(fig)
-  plt.close(fig)  # Mencegah Memory Leak
+  plt.close(fig)  # Mencegah memory leak saat auto-refresh
 
   # Ringkasan Data Tabel Real-time
   st.subheader(
@@ -134,10 +135,11 @@ try:
       calculate_power, axis=1
   )
 
-  # Handling agar tidak error jika dijalankan saat 00:00 WIB
   df_display = df_display_hourly[df_display_hourly["time"] <= now_wib][
       ["time", "ghi", "temp_ambient", "power_mw"]
   ]
+
+  # Menjaga agar tabel tidak error jika diakses awal hari (00:00 WIB)
   if df_display.empty:
     df_display = df_display_hourly.head(1)[
         ["time", "ghi", "temp_ambient", "power_mw"]
@@ -146,4 +148,4 @@ try:
   st.dataframe(df_display, use_container_width=True, hide_index=True)
 
 except Exception as e:
-  st.error(f"Gagal mengambil atau memproses data dari API: {e}")
+  st.error(f"Gagal mengambil data dari API Open-Meteo: {e}")
