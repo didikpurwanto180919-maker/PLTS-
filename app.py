@@ -166,7 +166,7 @@ except Exception as e:
   st.stop()
 
 # ---------------------------------------------------------
-# 3. HEADER & BANNER OVERVIEW (UPDATED NAME)
+# 3. HEADER & BANNER OVERVIEW
 # ---------------------------------------------------------
 st.markdown(
     "<h2 class='main-header'>PEMBANGKIT LISTRIK TENAGA SURYA (PLTS)</h2>",
@@ -188,7 +188,7 @@ st.markdown(
 )
 
 # ---------------------------------------------------------
-# 4. LAYOUT UTAMA (GRAFIK + INFORMASI UNIT)
+# 4. LAYOUT UTAMA (GRAFIK + INFORMASI UNIT TERUPDATE)
 # ---------------------------------------------------------
 col_left, col_right = st.columns([1.4, 1.0])
 
@@ -248,22 +248,25 @@ with col_left:
   plt.close(fig)
 
 with col_right:
-  # Informasi Lokasi PLTS UBP Grati
+  # Informasi Lokasi & Spesifikasi Teknis Tambahan
   st.markdown(
       f"""
     <div class="info-box">
         <h4 style="margin-top:0; color:#1a365d; font-size:15px;">Basic Information</h4>
         <h3 style="margin-top:0; color:#0d3b66; font-size:17px;"><b>PLTS UBP Grati 1.5 MWp</b></h3>
-        <p style="color:#4a5568; margin-bottom:12px;">
+        <p style="color:#4a5568; margin-bottom:8px;">
             Desa Wates, Jl. Raya Surabaya - Probolinggo KM.73<br>
             Lekok, Pasir Panjang, Wates, Kec. Lekok, Pasuruan<br>
             Jawa Timur 67186
         </p>
-        <table style="width:100%; border-collapse:collapse; line-height:1.6;">
+        <table style="width:100%; border-collapse:collapse; line-height:1.5; font-size:12.5px;">
             <tr><td><b>Status</b></td><td>: <span style="color:#2b6cb0; font-weight:bold;">Online</span></td></tr>
             <tr><td><b>Total String Capacity</b></td><td>: 1507.00 kWp</td></tr>
             <tr><td><b>Grid Connection Date</b></td><td>: 19 August 2021</td></tr>
             <tr><td><b>Longitude & Latitude</b></td><td>: {LAT} & {LON}</td></tr>
+            <tr><td><b>PV System</b></td><td>: Ground-mounted large scale</td></tr>
+            <tr><td><b>Azimuth of PV Panels</b></td><td>: Default (0°)</td></tr>
+            <tr><td><b>Tilt of PV Panels</b></td><td>: 10°</td></tr>
         </table>
     </div>
     """,
