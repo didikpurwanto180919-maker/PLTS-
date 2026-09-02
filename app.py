@@ -8,20 +8,21 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
 # ---------------------------------------------------------
-# 1. KONFIGURASI HALAMAN & CSS STYLING DEDIKASI
+# 1. KONFIGURASI HALAMAN & CSS STYLING
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PLTS UBP GRATI 1.5 MWp", layout="wide", initial_sidebar_state="collapsed"
+    page_title="PLTS UBP GRATI 1.5 MWp",
+    layout="wide",
+    initial_sidebar_state="collapsed",
 )
 
 # Auto-refresh tiap 10 detik
 st_autorefresh(interval=10 * 1000, key="plts_live_refresh_10s")
 
-# Inject Custom CSS untuk menirukan style Industrial Dashboard (Border Card, Header Navy, Metric Boxes)
+# Inject Custom CSS
 st.markdown(
     """
 <style>
-    /* Styling Header Atas */
     .main-header {
         text-align: center;
         color: #0d3b66;
@@ -47,8 +48,6 @@ st.markdown(
         justify-content: space-between;
         margin-bottom: 15px;
     }
-    
-    /* Styling Card Metrik SCADA */
     .scada-card {
         border: 1.5px solid #a0aec0;
         border-radius: 8px;
@@ -147,7 +146,7 @@ try:
   df_realtime = df_min.copy()
   df_realtime.loc[df_realtime["time"] > now_wib, "power_kw"] = None
 
-  # Ambil Nilai Telemetri Saat Ini
+  # Nilai Telemetri Saat Ini
   current_row = df_min[df_min["time"] <= now_wib].iloc[-1]
   curr_ghi = current_row["ghi"]
   curr_temp = current_row["temp_ambient"]
@@ -156,10 +155,10 @@ try:
       curr_temp + (NOCT - 20) * (curr_ghi / 800.0) if curr_ghi > 0 else curr_temp
   )
 
-  # Integrasi Estimasi Akumulasi Energi
+  # Estimasi Akumulasi Energi
   daily_kwh = df_min[df_min["time"] <= now_wib]["power_kw"].sum() / 60.0
   kwh_per_kwp = daily_kwh / CAPACITY_KWP if CAPACITY_KWP > 0 else 0.0
-  co2_saved_ton = daily_kwh * 0.00085  # Faktor Emisi ~0.85 kg CO2/kWh
+  co2_saved_ton = daily_kwh * 0.00085
   trees_saved = co2_saved_ton * 40.0
 
 except Exception as e:
@@ -167,17 +166,16 @@ except Exception as e:
   st.stop()
 
 # ---------------------------------------------------------
-# 3. HEADER & BANNER OVERVIEW
+# 3. HEADER & BANNER OVERVIEW (UPDATED NAME)
 # ---------------------------------------------------------
 st.markdown(
     "<h2 class='main-header'>PEMBANGKIT LISTRIK TENAGA SURYA (PLTS)</h2>",
     unsafe_allow_html=True,
 )
 st.markdown(
-    "<h3 class='sub-header'>GRATI POMU 1.5 MWp</h3>", unsafe_allow_html=True
+    "<h3 class='sub-header'>UBP GRATI 1.5 MWp</h3>", unsafe_allow_html=True
 )
 
-# Header Bar Biru Gelap SCADA
 st.markdown(
     f"""
 <div class="banner-bar">
@@ -197,7 +195,7 @@ col_left, col_right = st.columns([1.4, 1.0])
 with col_left:
   fig, ax1 = plt.subplots(figsize=(8, 4.2))
 
-  # Plot Active Power (Hijau Neon / Green sesuai gambar acuan)
+  # Active Power
   ax1.plot(
       df_realtime["time"],
       df_realtime["power_kw"],
@@ -209,7 +207,7 @@ with col_left:
   ax1.tick_params(axis="y", labelcolor="#00c853", labelsize=8)
   ax1.set_ylim(0, 1600)
 
-  # Plot Irradiance (Sumbu Y Kedua - Orange)
+  # Irradiance
   ax2 = ax1.twinx()
   ax2.plot(
       df_min["time"],
@@ -224,7 +222,7 @@ with col_left:
   ax2.tick_params(axis="y", labelcolor="#ff9800", labelsize=8)
   ax2.set_ylim(0, 1250)
 
-  # Formatting Sumbu X (Waktu)
+  # Sumbu X
   ax1.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M", tz=wib_tz))
   ax1.xaxis.set_major_locator(mdates.HourLocator(interval=2))
   ax1.tick_params(axis="x", labelsize=8)
@@ -232,7 +230,7 @@ with col_left:
   plt.title("Active Power & Irradiance", fontsize=10, fontweight="bold")
   ax1.grid(True, linestyle="--", alpha=0.4)
 
-  # Combine Legends
+  # Legend
   lines_1, labels_1 = ax1.get_legend_handles_labels()
   lines_2, labels_2 = ax2.get_legend_handles_labels()
   ax1.legend(
@@ -255,7 +253,7 @@ with col_right:
       f"""
     <div class="info-box">
         <h4 style="margin-top:0; color:#1a365d; font-size:15px;">Basic Information</h4>
-        <h3 style="margin-top:0; color:#0d3b66; font-size:17px;"><b>PLTS Grati POMU 1.5 MWp</b></h3>
+        <h3 style="margin-top:0; color:#0d3b66; font-size:17px;"><b>PLTS UBP Grati 1.5 MWp</b></h3>
         <p style="color:#4a5568; margin-bottom:12px;">
             Desa Wates, Jl. Raya Surabaya - Probolinggo KM.73<br>
             Lekok, Pasir Panjang, Wates, Kec. Lekok, Pasuruan<br>
@@ -275,12 +273,11 @@ with col_right:
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 5. DASHBOARD METRICS GRID (3 BARIS x 6 KOLOM)
+# 5. METRICS GRID (3 BARIS x 6 KOLOM)
 # ---------------------------------------------------------
 
 
 def create_card(title, value, unit=""):
-  """Fungsi pembantu membuat card SCADA bersatu."""
   return f"""
     <div class="scada-card">
         <div class="scada-title">{title}</div>
@@ -289,7 +286,7 @@ def create_card(title, value, unit=""):
     """
 
 
-# ----- BARIS 1 -----
+# BARIS 1
 r1_1, r1_2, r1_3, r1_4, r1_5, r1_6 = st.columns(6)
 with r1_1:
   st.markdown(
@@ -326,7 +323,7 @@ with r1_6:
       unsafe_allow_html=True,
   )
 
-# ----- BARIS 2 -----
+# BARIS 2
 r2_1, r2_2, r2_3, r2_4, r2_5, r2_6 = st.columns(6)
 with r2_1:
   st.markdown(
@@ -362,7 +359,7 @@ with r2_6:
       unsafe_allow_html=True,
   )
 
-# ----- BARIS 3 -----
+# BARIS 3
 r3_1, r3_2, r3_3, r3_4, r3_5, r3_6 = st.columns(6)
 with r3_1:
   st.markdown(
