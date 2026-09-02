@@ -8,7 +8,7 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
 # ---------------------------------------------------------
-# 1. KONFIGURASI HALAMAN & CSS STYLING (LARGE HIGH-CONTRAST TEXT)
+# 1. KONFIGURASI HALAMAN & CSS STYLING (NEON GLOW TEXT)
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="PLTS UBP GRATI 1.5 MWp",
@@ -19,7 +19,7 @@ st.set_page_config(
 # Auto-refresh tiap 10 detik
 st_autorefresh(interval=10 * 1000, key="plts_live_refresh_10s")
 
-# Inject Custom CSS dengan Font Besar dan Jelas
+# Inject Custom CSS dengan Efek Glow/Neon pada Angka
 st.markdown(
     """
 <style>
@@ -36,7 +36,7 @@ st.markdown(
         margin-bottom: 0px;
         padding-bottom: 0px;
         letter-spacing: 1.5px;
-        text-shadow: 0 0 12px rgba(56, 189, 248, 0.4);
+        text-shadow: 0 0 12px rgba(56, 189, 248, 0.5);
     }
     .sub-header {
         text-align: center;
@@ -46,6 +46,7 @@ st.markdown(
         margin-top: -5px;
         margin-bottom: 15px;
         letter-spacing: 1px;
+        text-shadow: 0 0 10px rgba(245, 158, 11, 0.4);
     }
     .banner-bar {
         background: linear-gradient(90deg, #1e293b 0%, #0f172a 50%, #1e293b 100%);
@@ -66,7 +67,7 @@ st.markdown(
         border-radius: 8px;
         padding: 12px 14px;
         background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
         height: 100px;
         display: flex;
         flex-direction: column;
@@ -74,24 +75,30 @@ st.markdown(
         margin-bottom: 12px;
     }
     .scada-title {
-        font-size: 13px; /* Ditingkatkan dari 11px */
-        color: #cbd5e1;  /* Dibuat lebih terang */
+        font-size: 13px;
+        color: #cbd5e1;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.5px;
     }
+
+    /* EFEK NEON GLOW PADA ANGKA NUMERIK */
     .scada-value {
-        font-size: 24px; /* Ditingkatkan dari 20px */
-        font-weight: bold;
+        font-size: 25px;
+        font-weight: 800;
         color: #ffffff;
         text-align: right;
         font-family: 'Courier New', Courier, monospace;
+        text-shadow: 0 0 6px rgba(56, 189, 248, 0.8), 
+                     0 0 12px rgba(56, 189, 248, 0.5);
     }
     .scada-unit {
-        font-size: 14px; /* Ditingkatkan dari 12px */
+        font-size: 14px;
         font-weight: bold;
         color: #38bdf8;
+        text-shadow: none;
     }
+    
     .info-box {
         border: 1px solid #334155;
         border-radius: 8px;
@@ -103,7 +110,7 @@ st.markdown(
     .info-table td {
         padding: 5px 0;
         color: #f1f5f9;
-        font-size: 14px; /* Ditingkatkan dari 12px */
+        font-size: 14px;
     }
 </style>
 """,
@@ -203,7 +210,7 @@ st.markdown(
 )
 
 # ---------------------------------------------------------
-# 4. GRAFIK DENGAN FONT SUMBU & LEGENDA LEBIH BESAR
+# 4. GRAFIK DENGAN TEMA GELAP HIGH CONTRAST
 # ---------------------------------------------------------
 col_left, col_right = st.columns([1.4, 1.0])
 
@@ -266,7 +273,6 @@ with col_left:
   )
   ax1.grid(True, linestyle=":", alpha=0.3, color="#94a3b8")
 
-  # Legend Style Besar
   ax1.legend(
       [line1, line2],
       ["Active Power (kW)", "Irradiance (W/m²)"],
@@ -309,15 +315,19 @@ with col_right:
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 5. METRICS GRID (CARD AKURASI TINGGI & FONT BESAR)
+# 5. METRICS GRID DENGAN WARNA WARNI EFEK NEON
 # ---------------------------------------------------------
 
 
-def create_card(title, value, unit="", border_color="#38bdf8"):
+def create_card(
+    title, value, unit="", border_color="#38bdf8", glow_color="rgba(56,189,248,0.7)"
+):
   return f"""
     <div class="scada-card" style="border-left-color: {border_color};">
         <div class="scada-title">{title}</div>
-        <div class="scada-value">{value} <span class="scada-unit">{unit}</span></div>
+        <div class="scada-value" style="text-shadow: 0 0 8px {glow_color}, 0 0 16px {glow_color};">
+            {value} <span class="scada-unit" style="color:{border_color};">{unit}</span>
+        </div>
     </div>
     """
 
@@ -331,36 +341,63 @@ with r1_1:
           f"{min(98.5, max(75.0, (daily_kwh / (CAPACITY_KWP * 4.5)) * 100 if daily_kwh > 0 else 85.0)):.2f}",
           "%",
           "#4ade80",
+          "rgba(74,222,128,0.7)",
       ),
       unsafe_allow_html=True,
   )
 with r1_2:
   st.markdown(
-      create_card("Irradiance", f"{curr_ghi:.2f}", "W/m²", "#fbbf24"),
+      create_card(
+          "Irradiance",
+          f"{curr_ghi:.2f}",
+          "W/m²",
+          "#fbbf24",
+          "rgba(251,191,36,0.7)",
+      ),
       unsafe_allow_html=True,
   )
 with r1_3:
   st.markdown(
       create_card(
-          "Cell Temp", f"{curr_cell_temp:.2f}", "°C", "#f97316"
+          "Cell Temp",
+          f"{curr_cell_temp:.2f}",
+          "°C",
+          "#f97316",
+          "rgba(249,115,22,0.7)",
       ),
       unsafe_allow_html=True,
   )
 with r1_4:
   st.markdown(
       create_card(
-          "Total DC Power", f"{curr_power_kw * 1.03:.2f}", "kW", "#38bdf8"
+          "Total DC Power",
+          f"{curr_power_kw * 1.03:.2f}",
+          "kW",
+          "#38bdf8",
+          "rgba(56,189,248,0.7)",
       ),
       unsafe_allow_html=True,
   )
 with r1_5:
   st.markdown(
-      create_card("Total AC Power", f"{curr_power_kw:.2f}", "kW", "#00f2fe"),
+      create_card(
+          "Total AC Power",
+          f"{curr_power_kw:.2f}",
+          "kW",
+          "#00f2fe",
+          "rgba(0,242,254,0.7)",
+      ),
       unsafe_allow_html=True,
   )
 with r1_6:
   st.markdown(
-      create_card("Daily Energy", f"{daily_kwh:.2f}", "kWh", "#a855f7"),
+      create_card(
+          "Daily Energy",
+          f"{daily_kwh:.2f}",
+          "kWh",
+          "#a855f7",
+          "rgba(168,85,247,0.7)",
+      ),
       unsafe_allow_html=True,
   )
 
@@ -368,17 +405,35 @@ with r1_6:
 r2_1, r2_2, r2_3, r2_4, r2_5, r2_6 = st.columns(6)
 with r2_1:
   st.markdown(
-      create_card("Daily kWh/kWp", f"{kwh_per_kwp:.2f}", "", "#4ade80"),
+      create_card(
+          "Daily kWh/kWp",
+          f"{kwh_per_kwp:.2f}",
+          "",
+          "#4ade80",
+          "rgba(74,222,128,0.7)",
+      ),
       unsafe_allow_html=True,
   )
 with r2_2:
   st.markdown(
-      create_card("Ambient Temp", f"{curr_temp:.2f}", "°C", "#f97316"),
+      create_card(
+          "Ambient Temp",
+          f"{curr_temp:.2f}",
+          "°C",
+          "#f97316",
+          "rgba(249,115,22,0.7)",
+      ),
       unsafe_allow_html=True,
   )
 with r2_3:
   st.markdown(
-      create_card("Trees Saved", f"{trees_saved:.2f}", "Trees", "#22c55e"),
+      create_card(
+          "Trees Saved",
+          f"{trees_saved:.2f}",
+          "Trees",
+          "#22c55e",
+          "rgba(34,197,94,0.7)",
+      ),
       unsafe_allow_html=True,
   )
 with r2_4:
@@ -388,6 +443,7 @@ with r2_4:
           "720.40" if curr_power_kw > 0 else "0.00",
           "V",
           "#38bdf8",
+          "rgba(56,189,248,0.7)",
       ),
       unsafe_allow_html=True,
   )
@@ -398,12 +454,19 @@ with r2_5:
           "380.15" if curr_power_kw > 0 else "0.00",
           "V",
           "#00f2fe",
+          "rgba(0,242,254,0.7)",
       ),
       unsafe_allow_html=True,
   )
 with r2_6:
   st.markdown(
-      create_card("Total AC Energy", "11869.48", "MWh", "#a855f7"),
+      create_card(
+          "Total AC Energy",
+          "11869.48",
+          "MWh",
+          "#a855f7",
+          "rgba(168,85,247,0.7)",
+      ),
       unsafe_allow_html=True,
   )
 
@@ -412,13 +475,23 @@ r3_1, r3_2, r3_3, r3_4, r3_5, r3_6 = st.columns(6)
 with r3_1:
   st.markdown(
       create_card(
-          "Export Meter", "12105109.50", "kWh", "#a855f7"
+          "Export Meter",
+          "12105109.50",
+          "kWh",
+          "#a855f7",
+          "rgba(168,85,247,0.7)",
       ),
       unsafe_allow_html=True,
   )
 with r3_2:
   st.markdown(
-      create_card("CO² Saved", f"{co2_saved_ton:.2f}", "Ton", "#22c55e"),
+      create_card(
+          "CO² Saved",
+          f"{co2_saved_ton:.2f}",
+          "Ton",
+          "#22c55e",
+          "rgba(34,197,94,0.7)",
+      ),
       unsafe_allow_html=True,
   )
 with r3_3:
@@ -428,6 +501,7 @@ with r3_3:
           "0.99" if curr_power_kw > 0 else "0.00",
           "",
           "#eab308",
+          "rgba(234,179,8,0.7)",
       ),
       unsafe_allow_html=True,
   )
@@ -438,6 +512,7 @@ with r3_4:
           f"{(curr_power_kw * 1000 / 720.4):.2f}" if curr_power_kw > 0 else "0.00",
           "A",
           "#38bdf8",
+          "rgba(56,189,248,0.7)",
       ),
       unsafe_allow_html=True,
   )
@@ -452,11 +527,14 @@ with r3_5:
           ),
           "A",
           "#00f2fe",
+          "rgba(0,242,254,0.7)",
       ),
       unsafe_allow_html=True,
   )
 with r3_6:
   st.markdown(
-      create_card("AC Frequency", "50.01", "Hz", "#eab308"),
+      create_card(
+          "AC Frequency", "50.01", "Hz", "#eab308", "rgba(234,179,8,0.7)"
+      ),
       unsafe_allow_html=True,
   )
