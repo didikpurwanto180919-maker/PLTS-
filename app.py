@@ -11,7 +11,7 @@ from streamlit_autorefresh import st_autorefresh
 # 1. KONFIGURASI HALAMAN & CSS STYLING (NEON GLOW TEXT)
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PLTS UBP GRATI 1.5 MWp",
+    page_title="Machine Learning Optimasi PLTS UBP Grati",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -19,7 +19,7 @@ st.set_page_config(
 # Auto-refresh tiap 10 detik
 st_autorefresh(interval=10 * 1000, key="plts_live_refresh_10s")
 
-# Inject Custom CSS dengan Efek Glow/Neon pada Angka
+# Inject Custom CSS dengan Efek Glow/Neon pada Angka & Header
 st.markdown(
     """
 <style>
@@ -32,7 +32,7 @@ st.markdown(
         text-align: center;
         color: #38bdf8;
         font-weight: 900;
-        font-size: 32px;
+        font-size: 28px;
         margin-bottom: 0px;
         padding-bottom: 0px;
         letter-spacing: 1.5px;
@@ -43,7 +43,7 @@ st.markdown(
         color: #f59e0b;
         font-weight: 800;
         font-size: 24px;
-        margin-top: -5px;
+        margin-top: 5px;
         margin-bottom: 15px;
         letter-spacing: 1px;
         text-shadow: 0 0 10px rgba(245, 158, 11, 0.4);
@@ -188,14 +188,15 @@ except Exception as e:
   st.stop()
 
 # ---------------------------------------------------------
-# 3. HEADER & BANNER OVERVIEW
+# 3. HEADER & BANNER OVERVIEW (JUDUL DIPERBARUI)
 # ---------------------------------------------------------
 st.markdown(
-    "<h2 class='main-header'>PEMBANGKIT LISTRIK TENAGA SURYA (PLTS)</h2>",
+    "<h2 class='main-header'>MACHINE LEARNING OPTIMASI PRODUKSI PLTS LANDBASE 1.5 MWp</h2>",
     unsafe_allow_html=True,
 )
 st.markdown(
-    "<h3 class='sub-header'>UBP GRATI 1.5 MWp</h3>", unsafe_allow_html=True
+    "<h3 class='sub-header'>UBP GRATI</h3>",
+    unsafe_allow_html=True,
 )
 
 st.markdown(
