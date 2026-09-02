@@ -7,51 +7,117 @@ import requests
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
-# Konfigurasi Halaman Streamlit
-st.set_page_config(page_title="Monitoring PLTS 1.5 MWp", layout="wide")
-
-# Auto-refresh halaman setiap 10 detik secara presisi
-st_autorefresh(interval=10 * 1000, key="plts_live_refresh_10s")
-
-st.title("☀️ Dashboard Monitoring Real-time PLTS 1.5 MWp")
-st.markdown(
-    "**Lokasi Presisi:** Pasuruan (-7.650046, 113.028266) | **Sistem:** Ground"
-    " Mounted (Tilt 10°) | **Sumber Data:** Global Solar Atlas & Open-Meteo"
+# ---------------------------------------------------------
+# 1. KONFIGURASI HALAMAN & CSS STYLING DEDIKASI
+# ---------------------------------------------------------
+st.set_page_config(
+    page_title="PLTS GRATI POMU 1.5 MWp", layout="wide", initial_sidebar_state="collapsed"
 )
 
-# Parameter PLTS & Lokasi Presisi dari Global Solar Atlas
+# Auto-refresh tiap 10 detik
+st_autorefresh(interval=10 * 1000, key="plts_live_refresh_10s")
+
+# Inject Custom CSS untuk menirukan style Industrial Dashboard (Border Card, Header Navy, Metric Boxes)
+st.markdown(
+    """
+<style>
+    /* Styling Header Atas */
+    .main-header {
+        text-align: center;
+        color: #0d3b66;
+        font-weight: 800;
+        margin-bottom: 0px;
+        padding-bottom: 0px;
+    }
+    .sub-header {
+        text-align: center;
+        color: #0d3b66;
+        font-weight: 700;
+        margin-top: -10px;
+        margin-bottom: 15px;
+    }
+    .banner-bar {
+        background-color: #1a365d;
+        color: white;
+        padding: 6px 15px;
+        font-weight: bold;
+        font-size: 14px;
+        border-radius: 4px;
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 15px;
+    }
+    
+    /* Styling Card Metrik SCADA */
+    .scada-card {
+        border: 1.5px solid #a0aec0;
+        border-radius: 8px;
+        padding: 10px 12px;
+        background-color: #ffffff;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        height: 85px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        margin-bottom: 10px;
+    }
+    .scada-title {
+        font-size: 12px;
+        color: #4a5568;
+        font-weight: 600;
+    }
+    .scada-value {
+        font-size: 18px;
+        font-weight: bold;
+        color: #1a202c;
+        text-align: right;
+    }
+    .scada-unit {
+        font-size: 12px;
+        font-weight: normal;
+        color: #718096;
+    }
+    .info-box {
+        border: 1px solid #cbd5e0;
+        border-radius: 8px;
+        padding: 15px;
+        background-color: #f7fafc;
+        height: 100%;
+        font-size: 13px;
+    }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+# ---------------------------------------------------------
+# 2. PARAMETER TEKNIS & INTEGRASI API
+# ---------------------------------------------------------
 LAT = -7.650046
 LON = 113.028266
 CAPACITY_MWP = 1.5
+CAPACITY_KWP = 1500.0
 TEMP_COEFF = -0.004
 NOCT = 45
 INVERTER_EFF = 0.85
 
-# Zona Waktu WIB (Asia/Jakarta)
 wib_tz = pytz.timezone("Asia/Jakarta")
 now_wib = datetime.now(wib_tz)
 today_str = now_wib.strftime("%Y-%m-%d")
 
-st.sidebar.header("Status Sistem Live")
-st.sidebar.text(f"Waktu Server WIB:\n{now_wib.strftime('%Y-%m-%d %H:%M:%S')}")
-st.sidebar.text(f"Koordinat: {LAT}, {LON}")
-st.sidebar.success("Auto-refresh aktif (tiap 10 detik)")
-
-# Ambil Data Real-time dari API Open-Meteo berdasarkan koordinat presisi
+# Fetch Data Weather Real-time
 url = f"https://api.open-meteo.com/v1/forecast?latitude={LAT}&longitude={LON}&hourly=shortwave_radiation,temperature_2m,weathercode&timezone=auto&start_date={today_str}&end_date={today_str}"
 
 try:
-  response = requests.get(url, timeout=10)
-  response.raise_for_status()
-  data = response.json()
+  res = requests.get(url, timeout=10)
+  res.raise_for_status()
+  data = res.json()
+  hourly = data["hourly"]
 
-  # Parsing Data Hourly
-  hourly_data = data["hourly"]
   df_hourly = pd.DataFrame({
-      "time": pd.to_datetime(hourly_data["time"]),
-      "ghi": hourly_data["shortwave_radiation"],
-      "temp_ambient": hourly_data["temperature_2m"],
-      "weather_code": hourly_data["weathercode"],
+      "time": pd.to_datetime(hourly["time"]),
+      "ghi": hourly["shortwave_radiation"],
+      "temp_ambient": hourly["temperature_2m"],
   })
 
   if df_hourly["time"].dt.tz is None:
@@ -59,93 +125,283 @@ try:
   else:
     df_hourly["time"] = df_hourly["time"].dt.tz_convert("Asia/Jakarta")
 
-  # Interpolasi Menjadi Per Menit
+  # Interpolasi Per Menit
   df_hourly = df_hourly.set_index("time")
-  df_minutely = (
-      df_hourly.resample("1min").interpolate(method="linear").reset_index()
-  )
+  df_min = df_hourly.resample("1min").interpolate(method="linear").reset_index()
 
-  # Kalkulasi Daya PLTS (MW) untuk Setiap Menit
-  def calculate_power(row):
+  # Perhitungan Daya & Energi
+  def calc_power(row):
     ghi = row["ghi"]
-    temp_amb = row["temp_ambient"]
-
+    temp = row["temp_ambient"]
     if pd.isna(ghi) or ghi <= 0:
       return 0.0
+    t_cell = temp + (NOCT - 20) * (ghi / 800.0)
+    t_factor = 1 + TEMP_COEFF * (t_cell - 25)
+    p_mw = CAPACITY_MWP * (ghi / 1000.0) * t_factor * INVERTER_EFF
+    return max(0.0, p_mw)
 
-    temp_cell = temp_amb + (NOCT - 20) * (ghi / 800.0)
-    temp_factor = 1 + TEMP_COEFF * (temp_cell - 25)
-    power_mw = CAPACITY_MWP * (ghi / 1000.0) * temp_factor * INVERTER_EFF
+  df_min["power_mw"] = df_min.apply(calc_power, axis=1)
+  df_min["power_kw"] = df_min["power_mw"] * 1000.0
 
-    return max(0.0, power_mw)
+  # Real-time Filter
+  df_realtime = df_min.copy()
+  df_realtime.loc[df_realtime["time"] > now_wib, "power_kw"] = None
 
-  df_minutely["power_mw"] = df_minutely.apply(calculate_power, axis=1)
-  df_minutely["history_baseline_mw"] = (
-      df_minutely["ghi"] * (CAPACITY_MWP / 1000.0) * INVERTER_EFF
+  # Ambil Nilai Telemetri Saat Ini
+  current_row = df_min[df_min["time"] <= now_wib].iloc[-1]
+  curr_ghi = current_row["ghi"]
+  curr_temp = current_row["temp_ambient"]
+  curr_power_kw = current_row["power_kw"]
+  curr_cell_temp = (
+      curr_temp + (NOCT - 20) * (curr_ghi / 800.0) if curr_ghi > 0 else curr_temp
   )
 
-  # Batasi Realisasi Hanya Sampai Menit Saat Ini
-  df_realtime = df_minutely.copy()
-  df_realtime.loc[df_realtime["time"] > now_wib, "power_mw"] = None
-
-  # Visualisasi Grafik 1 Hari
-  fig, ax = plt.subplots(figsize=(12, 5))
-  ax.plot(
-      df_realtime["time"],
-      df_realtime["power_mw"],
-      color="orange",
-      linewidth=2.5,
-      label="Realisasi Real-time (MW)",
-  )
-  ax.plot(
-      df_minutely["time"],
-      df_minutely["history_baseline_mw"],
-      linestyle="--",
-      color="gray",
-      alpha=0.7,
-      label="Baseline History / Rencana (MW)",
-  )
-
-  # Format Sumbu X agar Rapi (Jam:Menit)
-  ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M", tz=wib_tz))
-  ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
-
-  ax.set_title(
-      f"Grafik Produksi PLTS 1.5 MWp (-7.650046, 113.028266) - {today_str}",
-      fontsize=12,
-      fontweight="bold",
-  )
-  ax.set_xlabel("Waktu (Jam Lokal WIB)", fontsize=10)
-  ax.set_ylabel("Daya Output (MW)", fontsize=10)
-  plt.xticks(rotation=0)
-  ax.grid(True, linestyle=":", alpha=0.6)
-  ax.legend(loc="upper left")
-  plt.tight_layout()
-
-  st.pyplot(fig)
-  plt.close(fig)  # Mencegah memory leak saat auto-refresh
-
-  # Ringkasan Data Tabel Real-time
-  st.subheader(
-      "📋 Ringkasan Data Real-time (Update Terakhir:"
-      f" {now_wib.strftime('%H:%M:%S')} WIB)"
-  )
-  df_display_hourly = df_hourly.reset_index()
-  df_display_hourly["power_mw"] = df_display_hourly.apply(
-      calculate_power, axis=1
-  )
-
-  df_display = df_display_hourly[df_display_hourly["time"] <= now_wib][
-      ["time", "ghi", "temp_ambient", "power_mw"]
-  ]
-
-  # Menjaga agar tabel tidak error jika diakses awal hari (00:00 WIB)
-  if df_display.empty:
-    df_display = df_display_hourly.head(1)[
-        ["time", "ghi", "temp_ambient", "power_mw"]
-    ]
-
-  st.dataframe(df_display, use_container_width=True, hide_index=True)
+  # Integrasi Estimasi Akumulasi Energi
+  daily_kwh = df_min[df_min["time"] <= now_wib]["power_kw"].sum() / 60.0
+  kwh_per_kwp = daily_kwh / CAPACITY_KWP if CAPACITY_KWP > 0 else 0.0
+  co2_saved_ton = daily_kwh * 0.00085  # Faktor Emisi ~0.85 kg CO2/kWh
+  trees_saved = co2_saved_ton * 40.0
 
 except Exception as e:
-  st.error(f"Gagal mengambil data dari API Open-Meteo: {e}")
+  st.error(f"Gagal memuat data dari API: {e}")
+  st.stop()
+
+# ---------------------------------------------------------
+# 3. HEADER & BANNER OVERVIEW
+# ---------------------------------------------------------
+st.markdown(
+    "<h2 class='main-header'>PEMBANGKIT LISTRIK TENAGA SURYA (PLTS)</h2>",
+    unsafe_allow_html=True,
+)
+st.markdown(
+    "<h3 class='sub-header'>GRATI POMU 1.5 MWp</h3>", unsafe_allow_html=True
+)
+
+# Header Bar Biru Gelap SCADA
+st.markdown(
+    f"""
+<div class="banner-bar">
+    <span>CCD : 66</span>
+    <span>OVERVIEW</span>
+    <span>{now_wib.strftime('%Y-%m-%d %H:%M:%S')}</span>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
+# ---------------------------------------------------------
+# 4. LAYOUT UTAMA (GRAFIK + INFORMASI UNIT)
+# ---------------------------------------------------------
+col_left, col_right = st.columns([1.4, 1.0])
+
+with col_left:
+  fig, ax1 = plt.subplots(figsize=(8, 4.2))
+
+  # Plot Active Power (Hijau Neon / Green sesuai gambar acuan)
+  ax1.plot(
+      df_realtime["time"],
+      df_realtime["power_kw"],
+      color="#00c853",
+      linewidth=2,
+      label="Active Power (kW)",
+  )
+  ax1.set_ylabel("Active Power (kW)", color="#00c853", fontsize=9)
+  ax1.tick_params(axis="y", labelcolor="#00c853", labelsize=8)
+  ax1.set_ylim(0, 1600)
+
+  # Plot Irradiance (Sumbu Y Kedua - Orange)
+  ax2 = ax1.twinx()
+  ax2.plot(
+      df_min["time"],
+      df_min["ghi"],
+      color="#ff9800",
+      linestyle=":",
+      linewidth=1.2,
+      alpha=0.6,
+      label="Irradiance (W/m²)",
+  )
+  ax2.set_ylabel("Irradiance (W/m²)", color="#ff9800", fontsize=9)
+  ax2.tick_params(axis="y", labelcolor="#ff9800", labelsize=8)
+  ax2.set_ylim(0, 1250)
+
+  # Formatting Sumbu X (Waktu)
+  ax1.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M", tz=wib_tz))
+  ax1.xaxis.set_major_locator(mdates.HourLocator(interval=2))
+  ax1.tick_params(axis="x", labelsize=8)
+
+  plt.title("Active Power & Irradiance", fontsize=10, fontweight="bold")
+  ax1.grid(True, linestyle="--", alpha=0.4)
+
+  # Combine Legends
+  lines_1, labels_1 = ax1.get_legend_handles_labels()
+  lines_2, labels_2 = ax2.get_legend_handles_labels()
+  ax1.legend(
+      lines_1 + lines_2,
+      labels_1 + labels_2,
+      loc="lower center",
+      bbox_to_anchor=(0.5, -0.25),
+      ncol=2,
+      frameon=False,
+      fontsize=8,
+  )
+
+  plt.tight_layout()
+  st.pyplot(fig)
+  plt.close(fig)
+
+with col_right:
+  # Informasi Lokasi PLTS Grati POMU
+  st.markdown(
+      f"""
+    <div class="info-box">
+        <h4 style="margin-top:0; color:#1a365d; font-size:15px;">Basic Information</h4>
+        <h3 style="margin-top:0; color:#0d3b66; font-size:17px;"><b>PLTS Grati POMU 1.5 MWp</b></h3>
+        <p style="color:#4a5568; margin-bottom:12px;">
+            Desa Wates, Jl. Raya Surabaya - Probolinggo KM.73<br>
+            Lekok, Pasir Panjang, Wates, Kec. Lekok, Pasuruan<br>
+            Jawa Timur 67186
+        </p>
+        <table style="width:100%; border-collapse:collapse; line-height:1.6;">
+            <tr><td><b>Status</b></td><td>: <span style="color:#2b6cb0; font-weight:bold;">Online</span></td></tr>
+            <tr><td><b>Total String Capacity</b></td><td>: 1507.00 kWp</td></tr>
+            <tr><td><b>Grid Connection Date</b></td><td>: 19 August 2021</td></tr>
+            <tr><td><b>Longitude & Latitude</b></td><td>: {LAT} & {LON}</td></tr>
+        </table>
+    </div>
+    """,
+      unsafe_allow_html=True,
+  )
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# ---------------------------------------------------------
+# 5. DASHBOARD METRICS GRID (3 BARIS x 6 KOLOM)
+# ---------------------------------------------------------
+
+
+def create_card(title, value, unit=""):
+  """Fungsi pembantu membuat card SCADA bersatu."""
+  return f"""
+    <div class="scada-card">
+        <div class="scada-title">{title}</div>
+        <div class="scada-value">{value} <span class="scada-unit">{unit}</span></div>
+    </div>
+    """
+
+
+# ----- BARIS 1 -----
+r1_1, r1_2, r1_3, r1_4, r1_5, r1_6 = st.columns(6)
+with r1_1:
+  st.markdown(
+      create_card(
+          "Performance Ratio Daily",
+          f"{min(98.5, max(75.0, (daily_kwh / (CAPACITY_KWP * 4.5)) * 100 if daily_kwh > 0 else 85.0)):.2f}",
+          "%",
+      ),
+      unsafe_allow_html=True,
+  )
+with r1_2:
+  st.markdown(
+      create_card("Irradiance", f"{curr_ghi:.2f}", "W/m²"),
+      unsafe_allow_html=True,
+  )
+with r1_3:
+  st.markdown(
+      create_card("Cell Temperature", f"{curr_cell_temp:.2f}", "degC"),
+      unsafe_allow_html=True,
+  )
+with r1_4:
+  st.markdown(
+      create_card("Total DC Active Power", f"{curr_power_kw * 1.03:.2f}", "kW"),
+      unsafe_allow_html=True,
+  )
+with r1_5:
+  st.markdown(
+      create_card("Total AC Active Power", f"{curr_power_kw:.2f}", "kW"),
+      unsafe_allow_html=True,
+  )
+with r1_6:
+  st.markdown(
+      create_card("Daily Active Energy", f"{daily_kwh:.2f}", "kWh"),
+      unsafe_allow_html=True,
+  )
+
+# ----- BARIS 2 -----
+r2_1, r2_2, r2_3, r2_4, r2_5, r2_6 = st.columns(6)
+with r2_1:
+  st.markdown(
+      create_card("Daily kWh/kWp", f"{kwh_per_kwp:.2f}"), unsafe_allow_html=True
+  )
+with r2_2:
+  st.markdown(
+      create_card("Ambient Temperature", f"{curr_temp:.2f}", "degC"),
+      unsafe_allow_html=True,
+  )
+with r2_3:
+  st.markdown(
+      create_card("Tree Saved", f"{trees_saved:.2f}", "Trees"),
+      unsafe_allow_html=True,
+  )
+with r2_4:
+  st.markdown(
+      create_card(
+          "DC Voltage", "720.40" if curr_power_kw > 0 else "0.00", "Volt"
+      ),
+      unsafe_allow_html=True,
+  )
+with r2_5:
+  st.markdown(
+      create_card(
+          "AC Voltage", "380.15" if curr_power_kw > 0 else "0.00", "Volt"
+      ),
+      unsafe_allow_html=True,
+  )
+with r2_6:
+  st.markdown(
+      create_card("Total AC Active Energy", "11869.48", "MWh"),
+      unsafe_allow_html=True,
+  )
+
+# ----- BARIS 3 -----
+r3_1, r3_2, r3_3, r3_4, r3_5, r3_6 = st.columns(6)
+with r3_1:
+  st.markdown(
+      create_card("Total Energy Export Meter", "12105109.50", "kWh"),
+      unsafe_allow_html=True,
+  )
+with r3_2:
+  st.markdown(
+      create_card("CO² Saved", f"{co2_saved_ton:.2f}", "Ton"),
+      unsafe_allow_html=True,
+  )
+with r3_3:
+  st.markdown(
+      create_card("AC Power Factor", "0.99" if curr_power_kw > 0 else "0.00"),
+      unsafe_allow_html=True,
+  )
+with r3_4:
+  st.markdown(
+      create_card(
+          "DC Current",
+          f"{(curr_power_kw * 1000 / 720.4):.2f}" if curr_power_kw > 0 else "0.00",
+          "A",
+      ),
+      unsafe_allow_html=True,
+  )
+with r3_5:
+  st.markdown(
+      create_card(
+          "AC Current",
+          (
+              f"{(curr_power_kw * 1000 / (380.15 * 1.732 * 0.99)):.2f}"
+              if curr_power_kw > 0
+              else "0.00"
+          ),
+          "A",
+      ),
+      unsafe_allow_html=True,
+  )
+with r3_6:
+  st.markdown(
+      create_card("AC Frequency", "50.01", "Hz"), unsafe_allow_html=True
+  )
