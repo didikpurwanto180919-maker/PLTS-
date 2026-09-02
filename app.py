@@ -1,5 +1,4 @@
 from datetime import datetime
-import folium
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -7,7 +6,6 @@ import pytz
 import requests
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
-from streamlit_folium import st_folium
 
 # ---------------------------------------------------------
 # 1. KONFIGURASI HALAMAN & CSS STYLING
@@ -190,7 +188,7 @@ st.markdown(
 )
 
 # ---------------------------------------------------------
-# 4. LAYOUT UTAMA (GRAFIK + PETA IRRADIANCE REALTIME & INFO)
+# 4. LAYOUT UTAMA (GRAFIK + INFORMASI UNIT TERUPDATE)
 # ---------------------------------------------------------
 col_left, col_right = st.columns([1.4, 1.0])
 
@@ -250,57 +248,25 @@ with col_left:
   plt.close(fig)
 
 with col_right:
-  # PETA REAL-TIME IRRADIANCE & SOLAR POTENTIAL (PVOUT MAP)
-  st.markdown(
-      "<b>☀️ Real-time Solar Irradiance Map (Pasuruan Site)</b>",
-      unsafe_allow_html=True,
-  )
-
-  # Inisialisasi Peta Folium
-  m = folium.Map(location=[LAT, LON], zoom_start=11, tiles="OpenStreetMap")
-
-  # Tambahkan layer peta satelit/pvout style
-  folium.TileLayer(
-      tiles="https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png",
-      attr="&copy; OpenStreetMap contributors",
-      name="Solar View",
-  ).add_to(m)
-
-  # Marker Lokasi PLTS UBP Grati dengan Tooltip Real-time
-  popup_content = f"""
-    <div style='font-size:12px; width:180px;'>
-        <b>PLTS UBP GRATI 1.5 MWp</b><br>
-        <b>Live Irradiance:</b> {curr_ghi:.2f} W/m²<br>
-        <b>Live Output:</b> {curr_power_kw:.2f} kW<br>
-        <b>Temp:</b> {curr_temp:.1f} °C
-    </div>
-    """
-  folium.Marker(
-      location=[LAT, LON],
-      popup=folium.Popup(popup_content, max_width=200),
-      tooltip=f"Live Irradiance: {curr_ghi:.1f} W/m²",
-      icon=folium.Icon(color="orange", icon="sun", prefix="fa"),
-  ).add_to(m)
-
-  # Render Peta Folium di Streamlit
-  st_folium(m, height=180, width=None, returned_objects=[])
-
-  # Informasi Lokasi & Spesifikasi Teknis PV
+  # Informasi Lokasi & Spesifikasi Teknis Tambahan
   st.markdown(
       f"""
-    <div class="info-box" style="margin-top:10px;">
-        <h4 style="margin-top:0; color:#1a365d; font-size:14px;">Basic Information</h4>
-        <h3 style="margin-top:0; color:#0d3b66; font-size:16px;"><b>PLTS UBP Grati 1.5 MWp</b></h3>
-        <p style="color:#4a5568; margin-bottom:6px; font-size:12px;">
-            Desa Wates, Jl. Raya Surabaya - Probolinggo KM.73, Lekok, Pasuruan
+    <div class="info-box">
+        <h4 style="margin-top:0; color:#1a365d; font-size:15px;">Basic Information</h4>
+        <h3 style="margin-top:0; color:#0d3b66; font-size:17px;"><b>PLTS UBP Grati 1.5 MWp</b></h3>
+        <p style="color:#4a5568; margin-bottom:8px;">
+            Desa Wates, Jl. Raya Surabaya - Probolinggo KM.73<br>
+            Lekok, Pasir Panjang, Wates, Kec. Lekok, Pasuruan<br>
+            Jawa Timur 67186
         </p>
-        <table style="width:100%; border-collapse:collapse; line-height:1.4; font-size:11.5px;">
+        <table style="width:100%; border-collapse:collapse; line-height:1.5; font-size:12.5px;">
             <tr><td><b>Status</b></td><td>: <span style="color:#2b6cb0; font-weight:bold;">Online</span></td></tr>
             <tr><td><b>Total String Capacity</b></td><td>: 1507.00 kWp</td></tr>
             <tr><td><b>Grid Connection Date</b></td><td>: 19 August 2021</td></tr>
             <tr><td><b>Longitude & Latitude</b></td><td>: {LAT} & {LON}</td></tr>
             <tr><td><b>PV System</b></td><td>: Ground-mounted large scale</td></tr>
-            <tr><td><b>Azimuth / Tilt</b></td><td>: Default (0°) / 10°</td></tr>
+            <tr><td><b>Azimuth of PV Panels</b></td><td>: Default (0°)</td></tr>
+            <tr><td><b>Tilt of PV Panels</b></td><td>: 10°</td></tr>
         </table>
     </div>
     """,
