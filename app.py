@@ -11,7 +11,7 @@ from streamlit_autorefresh import st_autorefresh
 # 1. KONFIGURASI HALAMAN & CSS STYLING DEDIKASI
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PLTS GRATI POMU 1.5 MWp", layout="wide", initial_sidebar_state="collapsed"
+    page_title="PLTS UBP GRATI 1.5 MWp", layout="wide", initial_sidebar_state="collapsed"
 )
 
 # Auto-refresh tiap 10 detik
@@ -250,7 +250,7 @@ with col_left:
   plt.close(fig)
 
 with col_right:
-  # Informasi Lokasi PLTS Grati POMU
+  # Informasi Lokasi PLTS UBP Grati
   st.markdown(
       f"""
     <div class="info-box">
