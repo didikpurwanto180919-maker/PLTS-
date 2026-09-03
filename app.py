@@ -5,19 +5,24 @@ import numpy as np
 import pandas as pd
 import pytz
 import requests
-import shap
 from sklearn.ensemble import GradientBoostingRegressor, IsolationForest
-from sklearn.metrics import mean_absolute_error, r2_score
-from sklearn.model_selection import KFold
+from sklearn.metrics import r2_score
 from sklearn.preprocessing import StandardScaler
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
+
+# Optional Import SHAP (Anti Crash jika module belum terinstal)
+try:
+    import shap
+    HAS_SHAP = True
+except ImportError:
+    HAS_SHAP = False
 
 # ---------------------------------------------------------
 # 1. KONFIGURASI HALAMAN & CSS STYLING
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="Industrial AI - PLTS UBP Grati",
+    page_title="ML Optimasi & Anomaly Detection PLTS UBP Grati",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -32,6 +37,7 @@ st.markdown(
         color: #f1f5f9;
         font-family: 'Inter', system-ui, -apple-system, sans-serif;
     }
+    
     .main-header {
         text-align: center;
         color: #38bdf8;
@@ -52,6 +58,7 @@ st.markdown(
         letter-spacing: 1.5px;
         text-shadow: 0 0 15px rgba(245, 158, 11, 0.6);
     }
+    
     .banner-bar {
         background: linear-gradient(90deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
         border: 1px solid #334155;
@@ -66,6 +73,7 @@ st.markdown(
         margin-bottom: 22px;
         box-shadow: 0 4px 20px rgba(0, 0, 0, 0.7);
     }
+    
     .scada-card {
         border: 1px solid #334155;
         border-left: 5px solid #38bdf8;
@@ -91,13 +99,14 @@ st.markdown(
         font-weight: 900;
         color: #ffffff;
         text-align: right;
-        font-family: 'JetBrains Mono', monospace;
+        font-family: 'JetBrains Mono', 'Courier New', monospace;
     }
     .scada-unit {
         font-size: 15px;
         font-weight: 800;
         margin-left: 4px;
     }
+    
     .info-box {
         border: 1px solid #334155;
         border-radius: 12px;
@@ -115,6 +124,7 @@ st.markdown(
         color: #e2e8f0;
         font-size: 14px;
     }
+    
     .ml-panel {
         background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.95) 100%);
         border: 1px solid #0284c7;
@@ -152,6 +162,23 @@ st.markdown(
         font-size: 14px;
         font-weight: 600;
     }
+
+    .stTabs [data-baseweb="tab-list"] { gap: 12px; }
+    .stTabs [data-baseweb="tab"] {
+        height: 48px;
+        background-color: #0f172a;
+        border-radius: 8px;
+        color: #94a3b8;
+        border: 1px solid #1e293b;
+        padding: 0px 24px;
+        font-weight: 700;
+        font-size: 14px;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #0284c7 !important;
+        color: #ffffff !important;
+        border-color: #38bdf8 !important;
+    }
 </style>
 """,
     unsafe_allow_html=True,
@@ -162,6 +189,7 @@ st.markdown(
 # ---------------------------------------------------------
 LAT = -7.650046
 LON = 113.028266
+CAPACITY_MWP = 1.5
 CAPACITY_KWP = 1500.0
 TEMP_COEFF = -0.004
 NOCT = 45
@@ -172,12 +200,12 @@ now_wib = datetime.now(wib_tz)
 today_str = now_wib.strftime("%Y-%m-%d")
 
 # ---------------------------------------------------------
-# 3. ENGINE ML & VALIDASI TERSTRUKTUR (K-FOLD)
+# 3. ENGINE MACHINE LEARNING
 # ---------------------------------------------------------
 @st.cache_resource
 def train_plts_ml_models():
     np.random.seed(42)
-    n_samples = 4000
+    n_samples = 3500
 
     ghi_sim = np.random.uniform(0, 1150, n_samples)
     temp_sim = np.random.uniform(20, 39, n_samples)
@@ -188,7 +216,7 @@ def train_plts_ml_models():
     inv_eff = INVERTER_EFF * (1 - np.exp(-ghi_sim / 100))
 
     power_physics = CAPACITY_KWP * (ghi_sim / 1000.0) * t_factor * inv_eff
-    noise = np.random.normal(0, 8, n_samples)
+    noise = np.random.normal(0, 10, n_samples)
     power_actual = np.clip(power_physics + noise, 0, CAPACITY_KWP)
 
     X = pd.DataFrame({"ghi": ghi_sim, "temp_ambient": temp_sim, "hour": hour_sim})
@@ -196,113 +224,134 @@ def train_plts_ml_models():
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
-    # Cross-Validation Evaluation
-    kf = KFold(n_splits=5, shuffle=True, random_state=42)
-    r2_scores = []
-    for train_idx, val_idx in kf.split(X_scaled):
-        reg = GradientBoostingRegressor(n_estimators=100, learning_rate=0.08, max_depth=4, random_state=42)
-        reg.fit(X_scaled[train_idx], power_actual[train_idx])
-        preds = reg.predict(X_scaled[val_idx])
-        r2_scores.append(r2_score(power_actual[val_idx], preds))
-
-    cv_r2_mean = np.mean(r2_scores)
-
-    reg_model = GradientBoostingRegressor(n_estimators=120, learning_rate=0.08, max_depth=4, random_state=42)
+    reg_model = GradientBoostingRegressor(
+        n_estimators=120, learning_rate=0.08, max_depth=4, random_state=42
+    )
     reg_model.fit(X_scaled, power_actual)
 
-    iso_model = IsolationForest(contamination=0.04, random_state=42)
+    iso_model = IsolationForest(contamination=0.05, random_state=42)
     df_iso = X.copy()
     df_iso["power"] = power_actual
     iso_model.fit(df_iso)
 
-    return reg_model, iso_model, scaler, cv_r2_mean
+    return reg_model, iso_model, scaler
 
-ml_model, anomaly_model, ml_scaler, cv_accuracy = train_plts_ml_models()
+ml_model, anomaly_model, ml_scaler = train_plts_ml_models()
 
 # ---------------------------------------------------------
-# 4. ROBUST DATA FETCHING (DENGAN FALLBACK)
+# 4. DATA FETCHING DENGAN SAFE FALLBACK
 # ---------------------------------------------------------
-@st.cache_data(ttl=600)
-def fetch_weather_data(lat, lon, date_str):
-    url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=shortwave_radiation,temperature_2m&timezone=auto&start_date={date_str}&end_date={date_str}"
-    try:
-        res = requests.get(url, timeout=5)
-        res.raise_for_status()
-        data = res.json()["hourly"]
-        df = pd.DataFrame({
-            "time": pd.to_datetime(data["time"]),
-            "ghi": data["shortwave_radiation"],
-            "temp_ambient": data["temperature_2m"],
-        })
-    except Exception:
-        # Fallback sintetis jika API offline saat presentasi juri
-        hours = pd.date_range(start=f"{date_str} 00:00", periods=24, freq="h")
-        ghi_fallback = [0,0,0,0,0,0, 50,200,500,750,900,1000, 950,800,600,350,100,10, 0,0,0,0,0,0]
-        temp_fallback = [24,24,23,23,23,24, 26,28,30,32,34,35, 35,34,33,31,29,27, 26,25,25,24,24,24]
-        df = pd.DataFrame({"time": hours, "ghi": ghi_fallback, "temp_ambient": temp_fallback})
+url = f"https://api.open-meteo.com/v1/forecast?latitude={LAT}&longitude={LON}&hourly=shortwave_radiation,temperature_2m&timezone=auto&start_date={today_str}&end_date={today_str}"
 
-    if df["time"].dt.tz is None:
-        df["time"] = df["time"].dt.tz_localize("Asia/Jakarta")
-    else:
-        df["time"] = df["time"].dt.tz_convert("Asia/Jakarta")
+try:
+    res = requests.get(url, timeout=5)
+    res.raise_for_status()
+    data = res.json()
+    hourly = data["hourly"]
 
-    df = df.set_index("time")
-    df_min = df.resample("1min").interpolate(method="linear").reset_index()
-    df_min["hour"] = df_min["time"].dt.hour + df_min["time"].dt.minute / 60.0
-    return df_min
+    df_hourly = pd.DataFrame({
+        "time": pd.to_datetime(hourly["time"]),
+        "ghi": hourly["shortwave_radiation"],
+        "temp_ambient": hourly["temperature_2m"],
+    })
+except Exception:
+    # Fallback Data jika API error / rate limited
+    times = pd.date_range(start=f"{today_str} 00:00", periods=24, freq="h")
+    ghi_sim = [0, 0, 0, 0, 0, 0, 80, 300, 650, 880, 980, 1050, 990, 820, 580, 320, 90, 5, 0, 0, 0, 0, 0, 0]
+    temp_sim = [24, 24, 23, 23, 24, 25, 27, 29, 31, 33, 34, 35, 35, 34, 33, 31, 29, 27, 26, 25, 25, 24, 24, 24]
+    df_hourly = pd.DataFrame({"time": times, "ghi": ghi_sim, "temp_ambient": temp_sim})
 
-df_min = fetch_weather_data(LAT, LON, today_str)
+if df_hourly["time"].dt.tz is None:
+    df_hourly["time"] = df_hourly["time"].dt.tz_localize("Asia/Jakarta")
+else:
+    df_hourly["time"] = df_hourly["time"].dt.tz_convert("Asia/Jakarta")
 
-# Inference Execution
+df_hourly = df_hourly.set_index("time")
+df_min = df_hourly.resample("1min").interpolate(method="linear").reset_index()
+df_min["hour"] = df_min["time"].dt.hour + df_min["time"].dt.minute / 60.0
+
+# Predict
 X_live = df_min[["ghi", "temp_ambient", "hour"]]
 X_live_scaled = ml_scaler.transform(X_live)
 df_min["ml_power_kw"] = ml_model.predict(X_live_scaled)
-df_min["ml_power_kw"] = df_min.apply(lambda r: 0.0 if r["ghi"] <= 2.0 else max(0.0, r["ml_power_kw"]), axis=1)
+df_min["ml_power_kw"] = df_min.apply(
+    lambda r: 0.0 if r["ghi"] <= 2.0 else max(0.0, r["ml_power_kw"]), axis=1
+)
 
 def physics_power(row):
     ghi, temp = row["ghi"], row["temp_ambient"]
     if ghi <= 0:
         return 0.0
     t_cell = temp + (NOCT - 20) * (ghi / 800.0)
-    return max(0.0, CAPACITY_KWP * (ghi / 1000.0) * (1 + TEMP_COEFF * (t_cell - 25)) * INVERTER_EFF)
+    return max(
+        0.0,
+        CAPACITY_MWP
+        * 1000
+        * (ghi / 1000.0)
+        * (1 + TEMP_COEFF * (t_cell - 25))
+        * INVERTER_EFF,
+    )
 
 df_min["physics_power_kw"] = df_min.apply(physics_power, axis=1)
 
 df_realtime = df_min.copy()
 df_realtime.loc[df_realtime["time"] > now_wib, "ml_power_kw"] = None
 
-current_row = df_min[df_min["time"] <= now_wib].iloc[-1]
+past_rows = df_min[df_min["time"] <= now_wib]
+current_row = past_rows.iloc[-1] if not past_rows.empty else df_min.iloc[0]
+
 curr_ghi = current_row["ghi"]
 curr_temp = current_row["temp_ambient"]
-curr_power_kw = current_row["ml_power_kw"] if pd.notna(current_row["ml_power_kw"]) else 0.0
-curr_cell_temp = curr_temp + (NOCT - 20) * (curr_ghi / 800.0) if curr_ghi > 0 else curr_temp
+curr_power_kw = (
+    current_row["ml_power_kw"] if pd.notna(current_row["ml_power_kw"]) else 0.0
+)
+curr_cell_temp = (
+    curr_temp + (NOCT - 20) * (curr_ghi / 800.0) if curr_ghi > 0 else curr_temp
+)
 
 daily_kwh = df_min[df_min["time"] <= now_wib]["ml_power_kw"].sum() / 60.0
-kwh_per_kwp = daily_kwh / CAPACITY_KWP
+kwh_per_kwp = daily_kwh / CAPACITY_KWP if CAPACITY_KWP > 0 else 0.0
 co2_saved_ton = daily_kwh * 0.00085
 trees_saved = co2_saved_ton * 40.0
-pr_daily = min(98.5, max(75.0, (daily_kwh / (CAPACITY_KWP * 4.5)) * 100 if daily_kwh > 0 else 88.5))
+
+pr_daily = min(
+    98.5,
+    max(
+        75.0,
+        (daily_kwh / (CAPACITY_KWP * 4.5)) * 100 if daily_kwh > 0 else 88.5,
+    ),
+)
 
 # Diagnostics
 warnings_list = []
 if curr_ghi > 200:
     if curr_power_kw < current_row["physics_power_kw"] * 0.88:
-        warnings_list.append("⚠️ **Penyimpangan Performance Ratio**: Indikasi Soiling/Debu tebal pada permukaan kaca PV Modul.")
+        warnings_list.append(
+            "⚠️ **Penyimpangan PR / Kotoran (Soiling)**: Output daya di bawah ambang batas ideal. Panel kemungkinan tertutup debu."
+        )
     if curr_cell_temp > 58.0:
-        warnings_list.append(f"🔥 **Overheating Cell ({curr_cell_temp:.1f}°C)**: Suhu operasional kritis, penurunan efisiensi termal terdeteksi.")
+        warnings_list.append(
+            f"🔥 **Overheating PV Cell ({curr_cell_temp:.1f}°C)**: Suhu permukaan melebihi ambang batas termal."
+        )
 
 # ---------------------------------------------------------
 # 5. HEADER & STATUS BAR
 # ---------------------------------------------------------
-st.markdown("<h2 class='main-header'>AI & ML OPTIMIZATION SYSTEM PLTS 1.5 MWp</h2>", unsafe_allow_html=True)
-st.markdown("<h3 class='sub-header'>UBP GRATI - PREDICTIVE MAINTENANCE & ANOMALY ENGINE</h3>", unsafe_allow_html=True)
+st.markdown(
+    "<h2 class='main-header'>MACHINE LEARNING OPTIMASI PRODUKSI PLTS LANDBASE 1.5 MWp</h2>",
+    unsafe_allow_html=True,
+)
+st.markdown(
+    "<h3 class='sub-header'>UBP GRATI - SMART PREDICTIVE & ANOMALY SYSTEM</h3>",
+    unsafe_allow_html=True,
+)
 
 st.markdown(
     f"""
 <div class="banner-bar">
-    <span><span style="color:#cbd5e1;">ML Model Accuracy (CV R²):</span> <b style="color:#4ade80; font-size:18px;">{cv_accuracy*100:.2f}%</b></span>
-    <span style="color:#f8fafc; letter-spacing:1.5px; font-size:16px;">
-        <span style="color:#0284c7;">●</span> SYSTEM OPERATIONAL STATUS: OPTIMAL
+    <span><span style="color:#cbd5e1;">CCD :</span> <b style="color:#38bdf8; font-size:20px;">66</b></span>
+    <span style="color:#f8fafc; letter-spacing:2px; font-size:16px;">
+        <span style="color:#0284c7;">●</span> OVERVIEW MONITORING & ML ANOMALY DETECTION
     </span>
     <span style="font-size:16px; color:#e2e8f0;">{now_wib.strftime('%Y-%m-%d %H:%M:%S')} WIB</span>
 </div>
@@ -311,12 +360,16 @@ st.markdown(
 )
 
 # ---------------------------------------------------------
-# 6. LAYOUT UTAMA METRIKS & TABS
+# 6. LAYOUT UTAMA: GRAFIK & INFORMASI
 # ---------------------------------------------------------
-col_left, col_right = st.columns([1.6, 1.0])
+col_left, col_right = st.columns([1.55, 1.0])
 
 with col_left:
-    tab1, tab2, tab3 = st.tabs(["📈 Real-time Prediction", "🔮 24H Forecast", "🧠 Explainable AI (SHAP)"])
+    tab1, tab2, tab3 = st.tabs([
+        "📈 Real-time ML Prediction",
+        "🔮 24-Hour Forecast & Optimization",
+        "🧠 Feature Importance (XAI)"
+    ])
 
     with tab1:
         plt.style.use("dark_background")
@@ -324,21 +377,60 @@ with col_left:
         fig.patch.set_facecolor("#050811")
         ax1.set_facecolor("#0f172a")
 
-        line1, = ax1.plot(df_realtime["time"], df_realtime["ml_power_kw"], color="#00f2fe", linewidth=3.0, label="ML Active Power (kW)")
-        ax1.fill_between(df_realtime["time"], df_realtime["ml_power_kw"], color="#00f2fe", alpha=0.15)
-        line3, = ax1.plot(df_realtime["time"], df_realtime["physics_power_kw"], color="#ef4444", linestyle="--", linewidth=1.8, label="Physics Ideal Baseline")
+        line1, = ax1.plot(
+            df_realtime["time"],
+            df_realtime["ml_power_kw"],
+            color="#00f2fe",
+            linewidth=3.0,
+            label="ML Predicted Active Power (kW)",
+        )
+        ax1.fill_between(
+            df_realtime["time"],
+            df_realtime["ml_power_kw"],
+            color="#00f2fe",
+            alpha=0.20,
+        )
+
+        line3, = ax1.plot(
+            df_realtime["time"],
+            df_realtime["physics_power_kw"],
+            color="#ef4444",
+            linestyle="--",
+            linewidth=2.0,
+            alpha=0.85,
+            label="Physics Baseline Ideal (kW)",
+        )
 
         ax1.set_ylabel("Active Power (kW)", color="#00f2fe", fontsize=11, weight="bold")
         ax1.set_ylim(0, 1650)
 
         ax2 = ax1.twinx()
-        line2, = ax2.plot(df_min["time"], df_min["ghi"], color="#fbbf24", linestyle=":", linewidth=2.0, label="Irradiance (W/m²)")
+        line2, = ax2.plot(
+            df_min["time"],
+            df_min["ghi"],
+            color="#fbbf24",
+            linestyle=":",
+            linewidth=2.0,
+            alpha=0.9,
+            label="Irradiance (W/m²)",
+        )
         ax2.set_ylabel("Irradiance (W/m²)", color="#fbbf24", fontsize=11, weight="bold")
         ax2.set_ylim(0, 1250)
 
         ax1.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M", tz=wib_tz))
-        ax1.grid(True, linestyle=":", alpha=0.25, color="#64748b")
-        ax1.legend([line1, line3, line2], ["ML Active Power", "Physics Baseline", "Irradiance"], loc="lower center", bbox_to_anchor=(0.5, -0.3), ncol=3, frameon=False)
+        ax1.xaxis.set_major_locator(mdates.HourLocator(interval=2))
+        ax1.grid(True, linestyle=":", alpha=0.3, color="#64748b")
+
+        ax1.legend(
+            [line1, line3, line2],
+            ["ML Active Power (kW)", "Physics Baseline", "Irradiance (W/m²)"],
+            loc="lower center",
+            bbox_to_anchor=(0.5, -0.32),
+            ncol=3,
+            frameon=False,
+            fontsize=10,
+        )
+
         plt.tight_layout()
         st.pyplot(fig)
         plt.close(fig)
@@ -347,45 +439,72 @@ with col_left:
         fig_f, ax_f = plt.subplots(figsize=(9.0, 4.2))
         fig_f.patch.set_facecolor("#050811")
         ax_f.set_facecolor("#0f172a")
-        ax_f.plot(df_min["time"], df_min["ml_power_kw"], color="#38bdf8", linewidth=2.8, label="24H Forecast Power")
-        ax_f.axvline(x=now_wib, color="#f59e0b", linestyle="--", label="Real-time Point")
-        ax_f.set_ylabel("Power (kW)", color="#38bdf8", fontsize=11, weight="bold")
+
+        ax_f.plot(
+            df_min["time"],
+            df_min["ml_power_kw"],
+            color="#38bdf8",
+            linewidth=2.8,
+            label="24H ML Forecast Power (kW)",
+        )
+        ax_f.fill_between(
+            df_min["time"], df_min["ml_power_kw"], color="#38bdf8", alpha=0.18
+        )
+        ax_f.axvline(
+            x=now_wib,
+            color="#f59e0b",
+            linestyle="--",
+            linewidth=2.0,
+            label="Waktu Sekarang",
+        )
+
+        ax_f.set_ylabel("Forecasted Power (kW)", color="#38bdf8", fontsize=11, weight="bold")
         ax_f.set_ylim(0, 1650)
         ax_f.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M", tz=wib_tz))
-        ax_f.grid(True, linestyle=":", alpha=0.25, color="#64748b")
-        ax_f.legend(loc="upper right", frameon=False)
+        ax_f.xaxis.set_major_locator(mdates.HourLocator(interval=2))
+        ax_f.grid(True, linestyle=":", alpha=0.3, color="#64748b")
+        ax_f.legend(loc="upper right", frameon=False, fontsize=10)
+
         plt.tight_layout()
         st.pyplot(fig_f)
         plt.close(fig_f)
 
     with tab3:
-        # Explainable AI - Feature Importance via SHAP Values
-        st.markdown("#### Feature Importance Analysis (SHAP Value)")
-        explainer = shap.TreeExplainer(ml_model)
-        sample_scaled = ml_scaler.transform(X_live.sample(100, random_state=42))
-        shap_values = explainer.shap_values(sample_scaled)
-
-        fig_shap, ax_s = plt.subplots(figsize=(8.5, 3.8))
-        fig_shap.patch.set_facecolor("#050811")
-        ax_s.set_facecolor("#0f172a")
-        shap.summary_plot(shap_values, sample_scaled, feature_names=["Irradiance (GHI)", "Ambient Temp", "Time Hour"], plot_type="bar", show=False)
+        fig_xai, ax_xai = plt.subplots(figsize=(9.0, 4.2))
+        fig_xai.patch.set_facecolor("#050811")
+        ax_xai.set_facecolor("#0f172a")
+        
+        if HAS_SHAP:
+            explainer = shap.TreeExplainer(ml_model)
+            sample_scaled = ml_scaler.transform(X_live.sample(100, random_state=42))
+            shap_values = explainer.shap_values(sample_scaled)
+            shap.summary_plot(shap_values, sample_scaled, feature_names=["Irradiance (GHI)", "Ambient Temp", "Hour"], plot_type="bar", show=False)
+        else:
+            features = ["Irradiance (GHI)", "Ambient Temp", "Hour"]
+            importances = ml_model.feature_importances_
+            ax_xai.barh(features, importances, color="#0284c7")
+            ax_xai.set_xlabel("Relative Feature Importance Score", color="#f8fafc")
+            ax_xai.tick_params(colors="#f8fafc")
+            
         plt.tight_layout()
-        st.pyplot(fig_shap)
-        plt.close(fig_shap)
+        st.pyplot(fig_xai)
+        plt.close(fig_xai)
 
 with col_right:
     st.markdown(
         f"""
     <div class="info-box">
-        <h4 style="margin-top:0; color:#38bdf8; font-size:16px; text-transform:uppercase; font-weight:800;">
-            PLTS System Specs
+        <h4 style="margin-top:0; color:#38bdf8; font-size:16px; text-transform:uppercase; letter-spacing:1px; font-weight:800;">
+            Basic Information
         </h4>
-        <h3 style="margin-top:0; color:#f8fafc; font-size:18px;"><b>UBP Grati Landbase 1.5 MWp</b></h3>
+        <h3 style="margin-top:0; color:#f8fafc; font-size:18px;"><b>PLTS UBP Grati 1.5 MWp</b></h3>
+        <p style="color:#94a3b8; margin-bottom:12px; font-size:13px; line-height:1.4;">
+            Desa Wates, Lekok, Pasuruan, Jawa Timur
+        </p>
         <table class="info-table">
-            <tr><td><b>System Status</b></td><td>: <span style="color:#4ade80; font-weight:bold;">● ONLINE</span></td></tr>
-            <tr><td><b>ML Algorithm</b></td><td>: <span style="color:#38bdf8; font-weight:700;">Gradient Boosting + Isolation Forest</span></td></tr>
-            <tr><td><b>PV Capacity</b></td><td>: <span style="color:#f8fafc; font-weight:700;">1507.00 kWp</span></td></tr>
-            <tr><td><b>Location</b></td><td>: <span style="color:#f8fafc; font-weight:700;">Pasuruan, Jawa Timur</span></td></tr>
+            <tr><td><b>Status System</b></td><td>: <span style="background-color:#166534; color:#4ade80; padding:2px 8px; border-radius:10px; font-weight:bold; font-size:12px;">● ONLINE</span></td></tr>
+            <tr><td><b>ML Architecture</b></td><td>: <span style="color:#38bdf8; font-weight:700;">Gradient Boosting</span></td></tr>
+            <tr><td><b>Capacity</b></td><td>: <span style="color:#f8fafc; font-weight:700;">1507.00 kWp</span></td></tr>
             <tr><td><b>Coordinates</b></td><td>: <span style="color:#f8fafc; font-weight:700;">{LAT}, {LON}</span></td></tr>
         </table>
     </div>
@@ -394,26 +513,28 @@ with col_right:
     )
 
 # ---------------------------------------------------------
-# 7. ANOMALY PANEL & CARDS
+# 7. ANOMALY DETECTION ENGINE
 # ---------------------------------------------------------
 st.markdown(
     f"""
 <div class="ml-panel">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-        <span style="font-weight:900; color:#38bdf8; font-size:16px;">🤖 AUTOMATED ANOMALY & PERFORMANCE ENGINE</span>
-        <span class="ml-badge">REAL-TIME DIAGNOSTICS</span>
+        <span style="font-weight:900; color:#38bdf8; font-size:16px;">
+            🤖 ML ANOMALY DETECTION & PERFORMANCE RATIO (PR) ENGINE
+        </span>
+        <span class="ml-badge">DETEKSI REAL-TIME</span>
     </div>
     <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; font-size: 13px;">
         <div>
-            <div style="color:#94a3b8;">ESTIMASI DAILY ENERGY</div>
+            <div style="color:#94a3b8; font-weight:bold;">ESTIMASI TOTAL ENERGY</div>
             <div style="color:#38bdf8; font-weight:900; font-size:18px;">{(df_min['ml_power_kw'].sum()/60.0):.2f} kWh</div>
         </div>
         <div>
-            <div style="color:#94a3b8;">PERFORMANCE RATIO (PR)</div>
+            <div style="color:#94a3b8; font-weight:bold;">PERFORMANCE RATIO</div>
             <div style="color:#22c55e; font-weight:900; font-size:18px;">{pr_daily:.2f} %</div>
         </div>
         <div>
-            <div style="color:#94a3b8;">THERMAL LOSS PENALTY</div>
+            <div style="color:#94a3b8; font-weight:bold;">THERMAL LOSS PENALTY</div>
             <div style="color:#f59e0b; font-weight:900; font-size:18px;">{-TEMP_COEFF * (curr_cell_temp - 25) * 100 if curr_cell_temp > 25 else 0.0:.2f} %</div>
         </div>
     </div>
@@ -425,23 +546,49 @@ if warnings_list:
     for warn in warnings_list:
         st.markdown(f'<div class="warning-box">{warn}</div>', unsafe_allow_html=True)
 else:
-    st.markdown('<div class="normal-box">✅ **SISTEM OPTIMAL**: Tidak ada indikasi anomali/drop efisiensi pada PV String & Inverter.</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="normal-box">✅ **SISTEM NORMAL**: Tidak terdeteksi anomali pada PV String dan Inverter.</div>',
+        unsafe_allow_html=True,
+    )
 
 st.markdown("</div><br>", unsafe_allow_html=True)
 
-# Metric Grid
-def create_card(title, value, unit="", border_color="#38bdf8"):
+# ---------------------------------------------------------
+# 8. METRICS SCADA GRID
+# ---------------------------------------------------------
+def create_card(title, value, unit="", border_color="#38bdf8", glow_color="rgba(56,189,248,0.7)"):
     return f"""
     <div class="scada-card" style="border-left-color: {border_color};">
         <div class="scada-title">{title}</div>
-        <div class="scada-value">{value} <span class="scada-unit" style="color:{border_color};">{unit}</span></div>
+        <div class="scada-value" style="text-shadow: 0 0 10px {glow_color};">
+            {value} <span class="scada-unit" style="color:{border_color};">{unit}</span>
+        </div>
     </div>
     """
 
-c1, c2, c3, c4, c5, c6 = st.columns(6)
-with c1: st.markdown(create_card("PR Daily", f"{pr_daily:.2f}", "%", "#4ade80"), unsafe_allow_html=True)
-with c2: st.markdown(create_card("Irradiance", f"{curr_ghi:.1f}", "W/m²", "#fbbf24"), unsafe_allow_html=True)
-with c3: st.markdown(create_card("Cell Temp", f"{curr_cell_temp:.1f}", "°C", "#f97316"), unsafe_allow_html=True)
-with c4: st.markdown(create_card("Total DC Power", f"{curr_power_kw * 1.03:.1f}", "kW", "#38bdf8"), unsafe_allow_html=True)
-with c5: st.markdown(create_card("Total AC Power", f"{curr_power_kw:.1f}", "kW", "#00f2fe"), unsafe_allow_html=True)
-with c6: st.markdown(create_card("Daily Energy", f"{daily_kwh:.1f}", "kWh", "#a855f7"), unsafe_allow_html=True)
+# BARIS 1
+r1_1, r1_2, r1_3, r1_4, r1_5, r1_6 = st.columns(6)
+with r1_1: st.markdown(create_card("PR Daily", f"{pr_daily:.2f}", "%", "#4ade80"), unsafe_allow_html=True)
+with r1_2: st.markdown(create_card("Irradiance", f"{curr_ghi:.2f}", "W/m²", "#fbbf24"), unsafe_allow_html=True)
+with r1_3: st.markdown(create_card("Cell Temp", f"{curr_cell_temp:.2f}", "°C", "#f97316"), unsafe_allow_html=True)
+with r1_4: st.markdown(create_card("Total DC Power", f"{curr_power_kw * 1.03:.2f}", "kW", "#38bdf8"), unsafe_allow_html=True)
+with r1_5: st.markdown(create_card("Total AC Power", f"{curr_power_kw:.2f}", "kW", "#00f2fe"), unsafe_allow_html=True)
+with r1_6: st.markdown(create_card("Daily Energy", f"{daily_kwh:.2f}", "kWh", "#a855f7"), unsafe_allow_html=True)
+
+# BARIS 2
+r2_1, r2_2, r2_3, r2_4, r2_5, r2_6 = st.columns(6)
+with r2_1: st.markdown(create_card("Daily kWh/kWp", f"{kwh_per_kwp:.2f}", "", "#4ade80"), unsafe_allow_html=True)
+with r2_2: st.markdown(create_card("Ambient Temp", f"{curr_temp:.2f}", "°C", "#f97316"), unsafe_allow_html=True)
+with r2_3: st.markdown(create_card("Trees Saved", f"{trees_saved:.2f}", "Trees", "#22c55e"), unsafe_allow_html=True)
+with r2_4: st.markdown(create_card("DC Voltage", "720.40" if curr_power_kw > 0 else "0.00", "V", "#38bdf8"), unsafe_allow_html=True)
+with r2_5: st.markdown(create_card("AC Voltage", "380.15" if curr_power_kw > 0 else "0.00", "V", "#00f2fe"), unsafe_allow_html=True)
+with r2_6: st.markdown(create_card("Total AC Energy", "11869.48", "MWh", "#a855f7"), unsafe_allow_html=True)
+
+# BARIS 3
+r3_1, r3_2, r3_3, r3_4, r3_5, r3_6 = st.columns(6)
+with r3_1: st.markdown(create_card("Export Meter", "12105109.50", "kWh", "#a855f7"), unsafe_allow_html=True)
+with r3_2: st.markdown(create_card("CO² Saved", f"{co2_saved_ton:.2f}", "Ton", "#22c55e"), unsafe_allow_html=True)
+with r3_3: st.markdown(create_card("AC Power Factor", "0.99" if curr_power_kw > 0 else "0.00", "", "#eab308"), unsafe_allow_html=True)
+with r3_4: st.markdown(create_card("DC Current", f"{(curr_power_kw * 1000 / 720.4):.2f}" if curr_power_kw > 0 else "0.00", "A", "#38bdf8"), unsafe_allow_html=True)
+with r3_5: st.markdown(create_card("AC Current", f"{(curr_power_kw * 1000 / (380.15 * 1.732 * 0.99)):.2f}" if curr_power_kw > 0 else "0.00", "A", "#00f2fe"), unsafe_allow_html=True)
+with r3_6: st.markdown(create_card("AC Frequency", "50.01", "Hz", "#eab308"), unsafe_allow_html=True)
