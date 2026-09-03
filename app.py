@@ -586,7 +586,7 @@ with col_right:
     )
 
 # ---------------------------------------------------------
-# 8. PANEL ANOMALY DETECTION (UKURAN HURUF LEBIH BESAR)
+# 8. PANEL ANOMALY DETECTION & AUDIO ALARM
 # ---------------------------------------------------------
 st.markdown(
     f"""
@@ -616,6 +616,38 @@ st.markdown(
 )
 
 if warnings_list:
+    # 🔊 HTML5 / Web Audio API Synthesizer Alarm Sound Generator (Bunyi Sirene Peringatan Laptop)
+    alarm_html = """
+    <script>
+    function playAlarmSound() {
+        try {
+            var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            var osc = audioCtx.createOscillator();
+            var gain = audioCtx.createGain();
+            
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(880, audioCtx.currentTime); // 880Hz (A5 Tone)
+            osc.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.5); // Sweeping Sirene
+            
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+            
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.5);
+        } catch(e) {
+            console.log("Audio play error: " + e);
+        }
+    }
+    // Bunyikan Alarm 2x Pulse
+    playAlarmSound();
+    setTimeout(playAlarmSound, 600);
+    </script>
+    """
+    st.components.v1.html(alarm_html, height=0, width=0)
+
     for warn in warnings_list:
         st.markdown(
             f'<div class="warning-box">{warn}</div>', 
