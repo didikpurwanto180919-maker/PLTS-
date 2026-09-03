@@ -42,7 +42,7 @@ st.markdown(
         text-align: center;
         color: #38bdf8;
         font-weight: 900;
-        font-size: 30px;
+        font-size: 28px;
         margin-bottom: 2px;
         letter-spacing: 2px;
         text-shadow: 0 0 18px rgba(56, 189, 248, 0.7);
@@ -52,7 +52,7 @@ st.markdown(
         text-align: center;
         color: #f59e0b;
         font-weight: 800;
-        font-size: 24px;
+        font-size: 22px;
         margin-top: 2px;
         margin-bottom: 18px;
         letter-spacing: 1.5px;
@@ -66,7 +66,7 @@ st.markdown(
         color: #38bdf8;
         padding: 12px 28px;
         font-weight: bold;
-        font-size: 16px;
+        font-size: 15px;
         display: flex;
         justify-content: space-between;
         align-items: center;
@@ -294,7 +294,7 @@ def physics_power(row):
 
 df_min["physics_power_kw"] = df_min.apply(physics_power, axis=1)
 
-# Menentukan data histori real-time hingga detik/menit saat ini
+# Data Histori Real-time
 past_rows = df_min[df_min["time"] <= now_wib]
 current_row = past_rows.iloc[-1] if not past_rows.empty else df_min.iloc[0]
 
@@ -390,17 +390,17 @@ st.markdown(
     f"""
 <div class="banner-bar">
     <span><span style="color:#cbd5e1;">CCD :</span> <b style="color:#38bdf8; font-size:20px;">66</b></span>
-    <span style="color:#f8fafc; letter-spacing:2px; font-size:16px;">
+    <span style="color:#f8fafc; letter-spacing:2px; font-size:15px;">
         <span style="color:#0284c7;">●</span> OVERVIEW MONITORING & ML ANOMALY DETECTION
     </span>
-    <span style="font-size:16px; color:#e2e8f0;">{now_wib.strftime('%Y-%m-%d %H:%M:%S')} WIB</span>
+    <span style="font-size:15px; color:#e2e8f0;">{now_wib.strftime('%Y-%m-%d %H:%M:%S')} WIB</span>
 </div>
 """,
     unsafe_allow_html=True,
 )
 
 # ---------------------------------------------------------
-# 7. LAYOUT UTAMA & VISUALISASI CHART PERBAIKAN (24 JAM CONTINUOUS)
+# 7. VISUALISASI CHART UTAMA (LABEL DIREVISI & KOMPAK)
 # ---------------------------------------------------------
 col_left, col_right = st.columns([1.55, 1.0])
 
@@ -422,14 +422,14 @@ with col_left:
             df_min["time"],
             df_min["ml_power_kw"],
             color="#00f2fe",
-            linewidth=5.0,
+            linewidth=4.5,
             alpha=0.35,
         )
         line1, = ax1.plot(
             df_min["time"],
             df_min["ml_power_kw"],
             color="#00f2fe",
-            linewidth=2.8,
+            linewidth=2.5,
             label="ML Active Power (kW)",
         )
         
@@ -438,7 +438,7 @@ with col_left:
             past_rows["time"],
             past_rows["ml_power_kw"],
             color="#00f2fe",
-            alpha=0.22,
+            alpha=0.18,
         )
 
         # 2. Kurva Physics Baseline (24 Jam Kontinyu)
@@ -447,56 +447,56 @@ with col_left:
             df_min["physics_power_kw"],
             color="#f43f5e",
             linestyle="--",
-            linewidth=2.2,
-            alpha=0.9,
+            linewidth=2.0,
+            alpha=0.85,
             label="Physics Baseline (kW)",
         )
 
-        # 3. Kurva Irradiance (Sumbu Kanan - 24 Jam Kontinyu)
+        # 3. Kurva Irradiance (Sumbu Kanan)
         ax2 = ax1.twinx()
         line2, = ax2.plot(
             df_min["time"],
             df_min["ghi"],
             color="#fbbf24",
             linestyle=":",
-            linewidth=2.2,
-            alpha=0.9,
+            linewidth=2.0,
+            alpha=0.85,
             label="Irradiance (W/m²)",
         )
         ax2.set_ylabel("Irradiance (W/m²)", color="#fbbf24", fontsize=11, weight="bold")
         ax2.set_ylim(0, 1300)
         ax2.tick_params(colors="#fbbf24")
 
-        # 4. Marker Point & Annotation Box Nilai Angka LIVE (ML) & BASELINE
+        # 4. Annotation Box RINGKAS & KOMPAK (Ukuran Font 8.5pt)
         if pd.notna(curr_power_kw):
             # Glowing marker point pada titik realtime
-            ax1.plot(curr_time, curr_power_kw, marker="o", markersize=12, color="#00f2fe", alpha=0.4)
-            ax1.plot(curr_time, curr_power_kw, marker="o", markersize=7, color="#ffffff")
+            ax1.plot(curr_time, curr_power_kw, marker="o", markersize=9, color="#00f2fe", alpha=0.4)
+            ax1.plot(curr_time, curr_power_kw, marker="o", markersize=5, color="#ffffff")
 
-            # Annotation Box Atas: Real-time ML Power (Warna Cyan/Blue Glow)
+            # Annotation Box LIVE (Ukuran Ringkas & Tidak Menutupi Grafik)
             ax1.annotate(
                 f"LIVE: {curr_power_kw:.1f} kW",
                 xy=(curr_time, curr_power_kw),
-                xytext=(-85, 30),
+                xytext=(-105, 18),
                 textcoords="offset points",
-                bbox=dict(boxstyle="round,pad=0.5", facecolor="#0284c7", edgecolor="#38bdf8", alpha=0.95),
-                fontsize=11,
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="#0284c7", edgecolor="#38bdf8", alpha=0.9, lw=1.2),
+                fontsize=8.5,
                 fontweight="bold",
                 color="#ffffff",
-                arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0.2", color="#38bdf8", lw=2),
+                arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0.15", color="#38bdf8", lw=1.5),
             )
 
-            # Annotation Box Bawah: Physics Baseline Value (Warna Red/Crimson Glow)
+            # Annotation Box BASELINE (Ukuran Ringkas & Kompak)
             ax1.annotate(
                 f"BASE: {curr_physics_kw:.1f} kW",
                 xy=(curr_time, curr_physics_kw),
-                xytext=(-85, -45),
+                xytext=(-105, -28),
                 textcoords="offset points",
-                bbox=dict(boxstyle="round,pad=0.5", facecolor="#9f1239", edgecolor="#f43f5e", alpha=0.95),
-                fontsize=11,
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="#9f1239", edgecolor="#f43f5e", alpha=0.9, lw=1.2),
+                fontsize=8.5,
                 fontweight="bold",
                 color="#ffffff",
-                arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=-0.2", color="#f43f5e", lw=2),
+                arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=-0.15", color="#f43f5e", lw=1.5),
             )
 
         ax1.set_ylabel("Active Power (kW)", color="#00f2fe", fontsize=11, weight="bold")
@@ -505,7 +505,7 @@ with col_left:
 
         ax1.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M", tz=wib_tz))
         ax1.xaxis.set_major_locator(mdates.HourLocator(interval=2))
-        ax1.grid(True, linestyle=":", alpha=0.25, color="#475569")
+        ax1.grid(True, linestyle=":", alpha=0.22, color="#475569")
 
         # Legenda Modern
         ax1.legend(
@@ -515,7 +515,7 @@ with col_left:
             bbox_to_anchor=(0.5, -0.28),
             ncol=3,
             frameon=False,
-            fontsize=10,
+            fontsize=9.5,
         )
 
         plt.tight_layout()
@@ -606,23 +606,23 @@ st.markdown(
     f"""
 <div class="ml-panel">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
-        <span style="font-weight:900; color:#38bdf8; font-size:20px; letter-spacing:0.5px;">
+        <span style="font-weight:900; color:#38bdf8; font-size:19px; letter-spacing:0.5px;">
             🤖 ML ANOMALY DETECTION & PERFORMANCE RATIO (PR) ENGINE
         </span>
-        <span class="ml-badge" style="font-size:14px; padding:6px 14px; font-weight:800;">DETEKSI REAL-TIME</span>
+        <span class="ml-badge" style="font-size:13px; padding:5px 12px; font-weight:800;">DETEKSI REAL-TIME</span>
     </div>
     <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; font-size: 15px;">
         <div>
-            <div style="color:#cbd5e1; font-weight:700; font-size:15px; letter-spacing:0.5px;">ESTIMASI TOTAL ENERGY</div>
-            <div style="color:#38bdf8; font-weight:900; font-size:26px; margin-top:4px;">{(df_min['ml_power_kw'].sum()/60.0):.2f} kWh</div>
+            <div style="color:#cbd5e1; font-weight:700; font-size:14px; letter-spacing:0.5px;">ESTIMASI TOTAL ENERGY</div>
+            <div style="color:#38bdf8; font-weight:900; font-size:25px; margin-top:4px;">{(df_min['ml_power_kw'].sum()/60.0):.2f} kWh</div>
         </div>
         <div>
-            <div style="color:#cbd5e1; font-weight:700; font-size:15px; letter-spacing:0.5px;">PERFORMANCE RATIO</div>
-            <div style="color:#22c55e; font-weight:900; font-size:26px; margin-top:4px;">{pr_daily:.2f} %</div>
+            <div style="color:#cbd5e1; font-weight:700; font-size:14px; letter-spacing:0.5px;">PERFORMANCE RATIO</div>
+            <div style="color:#22c55e; font-weight:900; font-size:25px; margin-top:4px;">{pr_daily:.2f} %</div>
         </div>
         <div>
-            <div style="color:#cbd5e1; font-weight:700; font-size:15px; letter-spacing:0.5px;">THERMAL LOSS PENALTY</div>
-            <div style="color:#f59e0b; font-weight:900; font-size:26px; margin-top:4px;">{-TEMP_COEFF * (curr_cell_temp - 25) * 100 if curr_cell_temp > 25 else 0.0:.2f} %</div>
+            <div style="color:#cbd5e1; font-weight:700; font-size:14px; letter-spacing:0.5px;">THERMAL LOSS PENALTY</div>
+            <div style="color:#f59e0b; font-weight:900; font-size:25px; margin-top:4px;">{-TEMP_COEFF * (curr_cell_temp - 25) * 100 if curr_cell_temp > 25 else 0.0:.2f} %</div>
         </div>
     </div>
 """,
@@ -630,7 +630,7 @@ st.markdown(
 )
 
 if warnings_list:
-    # HTML5 / Web Audio API Synthesizer Alarm Sound Generator (Bunyi Sirene Peringatan Laptop)
+    # Audio Siren Warning (Bila Terdeteksi Anomali)
     alarm_html = """
     <script>
     function playAlarmSound() {
@@ -655,7 +655,6 @@ if warnings_list:
             console.log("Audio play error: " + e);
         }
     }
-    // Bunyikan Alarm 2x Pulse saat anomali terdeteksi
     playAlarmSound();
     setTimeout(playAlarmSound, 600);
     </script>
