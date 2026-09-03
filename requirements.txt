@@ -1,6 +1,8 @@
-requests
-pandas
-matplotlib
-pytz
 streamlit
 streamlit-autorefresh
+pandas
+matplotlib
+requests
+pytz
+scikit-learn
+joblib
