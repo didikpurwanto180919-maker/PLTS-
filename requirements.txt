@@ -6,3 +6,4 @@ matplotlib
 requests
 pytz
 scikit-learn
+shap
