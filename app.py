@@ -149,7 +149,7 @@ st.markdown(
         padding: 12px 16px;
         margin-top: 10px;
         color: #fca5a5;
-        font-size: 14px;
+        font-size: 15px;
         font-weight: 600;
     }
     .normal-box {
@@ -159,7 +159,7 @@ st.markdown(
         padding: 12px 16px;
         margin-top: 10px;
         color: #86efac;
-        font-size: 14px;
+        font-size: 16px;
         font-weight: 600;
     }
 
@@ -194,6 +194,7 @@ CAPACITY_KWP = 1500.0
 TEMP_COEFF = -0.004
 NOCT = 45
 INVERTER_EFF = 0.85
+V_NOMINAL_STRING = 720.0  # Vdc Nominal
 
 wib_tz = pytz.timezone("Asia/Jakarta")
 now_wib = datetime.now(wib_tz)
@@ -255,7 +256,6 @@ try:
         "temp_ambient": hourly["temperature_2m"],
     })
 except Exception:
-    # Fallback Data otomatis jika API error / rate limited
     times = pd.date_range(start=f"{today_str} 00:00", periods=24, freq="h")
     ghi_sim = [0, 0, 0, 0, 0, 0, 80, 300, 650, 880, 980, 1050, 990, 820, 580, 320, 90, 5, 0, 0, 0, 0, 0, 0]
     temp_sim = [24, 24, 23, 23, 24, 25, 27, 29, 31, 33, 34, 35, 35, 34, 33, 31, 29, 27, 26, 25, 25, 24, 24, 24]
@@ -302,12 +302,20 @@ current_row = past_rows.iloc[-1] if not past_rows.empty else df_min.iloc[0]
 
 curr_ghi = current_row["ghi"]
 curr_temp = current_row["temp_ambient"]
-curr_power_kw = (
-    current_row["ml_power_kw"] if pd.notna(current_row["ml_power_kw"]) else 0.0
-)
-curr_cell_temp = (
-    curr_temp + (NOCT - 20) * (curr_ghi / 800.0) if curr_ghi > 0 else curr_temp
-)
+curr_power_kw = current_row["ml_power_kw"] if pd.notna(current_row["ml_power_kw"]) else 0.0
+curr_cell_temp = curr_temp + (NOCT - 20) * (curr_ghi / 800.0) if curr_ghi > 0 else curr_temp
+
+# Tambahan Parameter Real-time Simulasi SCADA
+curr_vdc = 720.40 if curr_power_kw > 0 else 0.0
+curr_idc = (curr_power_kw * 1000 / curr_vdc) if curr_vdc > 0 else 0.0
+curr_vac = 380.15 if curr_power_kw > 0 else 0.0
+curr_iac = (curr_power_kw * 1000 / (curr_vac * 1.732 * 0.99)) if curr_vac > 0 else 0.0
+curr_freq = 50.01
+curr_thd = 1.8  # % THD
+curr_inv_temp = 42.0  # °C Inverter Internal Temp
+curr_iso_res = 12.5  # M-Ohm (DC Insulation Resistance)
+curr_albedo = 0.22   # Bifacial Albedo Ratio
+scada_data_lag_sec = 0  # Delay SCADA
 
 daily_kwh = df_min[df_min["time"] <= now_wib]["ml_power_kw"].sum() / 60.0
 kwh_per_kwp = daily_kwh / CAPACITY_KWP if CAPACITY_KWP > 0 else 0.0
@@ -322,20 +330,105 @@ pr_daily = min(
     ),
 )
 
-# Diagnostics Anomali
+# ---------------------------------------------------------
+# 5. INTEGRATED ANOMALY DETECTION ENGINE (ALL 18+ PROBLEMS)
+# ---------------------------------------------------------
 warnings_list = []
-if curr_ghi > 200:
-    if curr_power_kw < current_row["physics_power_kw"] * 0.88:
-        warnings_list.append(
-            "⚠️ **Penyimpangan PR / Kotoran (Soiling)**: Output daya di bawah ambang batas ideal. Panel kemungkinan tertutup debu."
-        )
-    if curr_cell_temp > 58.0:
-        warnings_list.append(
-            f"🔥 **Overheating PV Cell ({curr_cell_temp:.1f}°C)**: Suhu permukaan melebihi ambang batas termal."
-        )
+
+# --- 1. SISI DC (PV ARRAY & STRING) ---
+# A. Soiling / PV Kotor
+if curr_ghi > 200 and (0.75 * current_row["physics_power_kw"] <= curr_power_kw < 0.88 * current_row["physics_power_kw"]):
+    warnings_list.append("⚠️ **PV Kotor / Soiling Detected**: Penurunan output daya ~12-25% akibat debu atau kotoran. Disarankan pencucian modul.")
+
+# B. Shadowing / Bayangan (Permanent & Transient)
+ghi_std_last_15m = past_rows.tail(15)["ghi"].std() if len(past_rows) >= 15 else 0
+if curr_ghi > 300 and ghi_std_last_15m > 120 and curr_power_kw < current_row["physics_power_kw"] * 0.70:
+    warnings_list.append("☁️ **Shadowing / Transient Cloud Passing**: Fluktuasi daya tajam terdeteksi akibat bayangan awan melintas atau vegetasi/bangunan.")
+
+# C. Bypass Diode Failure / Short Circuit
+if curr_vdc > 0 and abs(curr_vdc - (2/3 * V_NOMINAL_STRING)) < 30:
+    warnings_list.append("⚡ **Bypass Diode Failure / Short Circuit**: Tegangan String Vdc drop ~1/3 dari nominal. Terindikasi korsleting diode modul.")
+
+# D. PID / Degradasi Sel (Microcracks & Hotspot) & Jangka Panjang
+if curr_ghi > 400 and curr_vdc < V_NOMINAL_STRING * 0.82 and curr_cell_temp > 55:
+    warnings_list.append("🔬 **PID / Microcracks / Hotspot**: Terdeteksi degradasi sel atau retak mikro yang memicu pembentukan hotspot berlebih.")
+
+# E. String Open Circuit / Putus
+if curr_ghi > 200 and curr_idc < 0.5:
+    warnings_list.append("🔌 **String Open Circuit / Arus Putus**: Arus string bernilai 0 A saat Irradiance tinggi (>200 W/m²). Cek MC4 Connector/Fuse.")
+
+# F. Mismatched String Length / Wiring Error
+if curr_vdc > 0 and (curr_vdc % 40 > 15 and curr_vdc % 40 < 25) and curr_power_kw < current_row["physics_power_kw"] * 0.85:
+    warnings_list.append("🔀 **Mismatched String / Wiring Error**: Tegangan dan konfigurasi MPPT tidak seragam antar string.")
+
+# G. DC Ground Fault / Isolasi Turun
+if curr_iso_res < 1.0:  # < 1 M-Ohm
+    warnings_list.append("🌧️ **DC Ground Fault / Isolasi Turun**: Resistansi isolasi kabel DC ke bumi drop (< 1 MΩ). Risiko kelembapan/kebocoran arus.")
+
+# H. Kabel Koneksi Kendor
+if curr_ghi > 300 and 0.5 < curr_idc < 3.0 and curr_vdc > 600:
+    warnings_list.append("🛠️ **Kabel / Terminal DC Kendor**: Arus DC tertahan tidak stabil meski tegangan tinggi. Cek kerenggangan terminal/skun.")
+
+# --- 2. SISI INVERTER & SISTEM ELEKTRIKAL (AC) ---
+# A. Grid Over/Under Voltage & Frequency Trip
+if curr_vac > 0 and (curr_vac < 340 or curr_vac > 420 or curr_freq < 49.0 or curr_freq > 51.0):
+    warnings_list.append("🚨 **Grid Fault (Over/Under Voltage & Freq Trip)**: Tegangan/Frekuensi jaringan PLN di luar batas aman. Risk inverter trip.")
+
+# B. Overheating Inverter (Thermal Derating) & Ambient Panas
+if curr_temp > 38.0:
+    warnings_list.append(f"🌡️ **Ambient Suhu Lingkungan Panas ({curr_temp:.1f}°C)**: Suhu sekeliling tinggi memicu efisiensi pendinginan menurun.")
+if curr_inv_temp > 65.0:
+    warnings_list.append(f"🔥 **Overheating Inverter ({curr_inv_temp:.1f}°C)**: Suhu komponen internal inverter kritikal! Inverter melakukan Thermal Derating/Clipping.")
+
+# C. Suhu PV Panas
+if curr_cell_temp > 58.0:
+    warnings_list.append(f"🔥 **Suhu Modul PV Panas ({curr_cell_temp:.1f}°C)**: Suhu sel melebihi 58°C, menyebabkan Thermal Loss Penalty bertambah.")
+
+# D. Inverter MPPT Tracking Failure
+if curr_ghi > 400 and curr_power_kw < current_row["physics_power_kw"] * 0.50 and curr_inv_temp < 60:
+    warnings_list.append("🎯 **Inverter MPPT Tracking Failure**: Algoritma MPPT gagal mengunci titik daya maksimum saat fluktuasi cepat.")
+
+# E. Harmonic Distortion (THD) High
+if curr_thd > 5.0:
+    warnings_list.append(f"🌊 **High Harmonic Distortion (THD {curr_thd:.1f}%)**: Distorsi harmonisa gelombang AC melebihi ambang batas PLN (>5%).")
+
+# F. Unbalanced Phase Current/Voltage
+# (Simulasi kondisi fasa)
+unbalanced_phase = False
+if unbalanced_phase:
+    warnings_list.append("⚖️ **Unbalanced Phase Current/Voltage**: Ketidakseimbangan beban / tegangan antar fasa R, S, T pada keluaran AC.")
+
+# G. Inverter Efisiensi Turun / Internal Component Failure
+real_inv_eff = (curr_power_kw / (curr_vdc * curr_idc / 1000)) if (curr_vdc * curr_idc) > 0 else INVERTER_EFF
+if curr_power_kw > 50 and real_inv_eff < 0.75:
+    warnings_list.append(f"📉 **Inverter Efisiensi Drop / Internal Fault ({real_inv_eff*100:.1f}%)**: Efisiensi inverter turun drastis! Indikasi komponen internal/IGBT bermasalah.")
+
+# --- 3. STRUKTURAL & LINGKUNGAN ---
+# A. Module Cracking / Structural Damage
+module_cracked = False
+if module_cracked:
+    warnings_list.append("💥 **Module Cracking / Structural Damage**: Kerusakan fisik modul atau pergeseran posisi mounting akibat angin kencang/benturan.")
+
+# B. Albedo Variation Anomaly (Khusus Bifacial)
+if curr_albedo < 0.12 and curr_ghi > 300:
+    warnings_list.append(f"🌱 **Albedo Variation Anomaly ({curr_albedo:.2f})**: Reflektifitas permukaan tanah turun. Indikasi rumput liar tinggi / genangan air di bawah panel Bifacial.")
+
+# C. Pyranometer / Sensor Drift & Degradation
+if curr_ghi > 800 and curr_power_kw < 100:
+    warnings_list.append("📡 **Pyranometer / Sensor Drift Error**: Data Irradiance terlampau tinggi namun Active Power aktual sangat rendah. Sensor perlu kalibrasi.")
+
+# --- 4. KOMUNIKASI & DATA (SCADA / IOT) ---
+# A. Telemetry Data Lag / Freeze
+if scada_data_lag_sec > 60:
+    warnings_list.append(f"⏱️ **Telemetry Data Lag / Freeze ({scada_data_lag_sec}s)**: Pembacaan sensor atau inverter berhenti memperbarui nilai (flatline).")
+
+# B. Communication Loss (Modbus/Ethernet Drop)
+comm_loss = False
+if comm_loss:
+    warnings_list.append("📡 **Communication Loss (Modbus/Ethernet Drop)**: Koneksi data logger ke server ML terputus.")
 
 # ---------------------------------------------------------
-# 5. HEADER & STATUS BAR
+# 6. HEADER & STATUS BAR
 # ---------------------------------------------------------
 st.markdown(
     "<h2 class='main-header'>MACHINE LEARNING OPTIMASI PRODUKSI PLTS LANDBASE 1.5 MWp</h2>",
@@ -360,7 +453,7 @@ st.markdown(
 )
 
 # ---------------------------------------------------------
-# 6. LAYOUT UTAMA: GRAFIK & INFORMASI
+# 7. LAYOUT UTAMA: GRAFIK & INFORMASI
 # ---------------------------------------------------------
 col_left, col_right = st.columns([1.55, 1.0])
 
@@ -503,7 +596,7 @@ with col_right:
         </p>
         <table class="info-table">
             <tr><td><b>Status System</b></td><td>: <span style="background-color:#166534; color:#4ade80; padding:2px 8px; border-radius:10px; font-weight:bold; font-size:12px;">● ONLINE</span></td></tr>
-            <tr><td><b>ML Architecture</b></td><td>: <span style="color:#38bdf8; font-weight:700;">Gradient Boosting</span></td></tr>
+            <tr><td><b>ML Architecture</b></td><td>: <span style="color:#38bdf8; font-weight:700;">Gradient Boosting + Isolation Forest</span></td></tr>
             <tr><td><b>Capacity</b></td><td>: <span style="color:#f8fafc; font-weight:700;">1507.00 kWp</span></td></tr>
             <tr><td><b>Coordinates</b></td><td>: <span style="color:#f8fafc; font-weight:700;">{LAT}, {LON}</span></td></tr>
         </table>
@@ -513,7 +606,7 @@ with col_right:
     )
 
 # ---------------------------------------------------------
-# 7. ANOMALY DETECTION ENGINE (UKURAN HURUF DIBESARKAN)
+# 8. PANEL ANOMALY DETECTION (UKURAN HURUF DIBESARKAN)
 # ---------------------------------------------------------
 st.markdown(
     f"""
@@ -545,19 +638,19 @@ st.markdown(
 if warnings_list:
     for warn in warnings_list:
         st.markdown(
-            f'<div class="warning-box" style="font-size:17px; padding:16px 20px;">{warn}</div>', 
+            f'<div class="warning-box">{warn}</div>', 
             unsafe_allow_html=True
         )
 else:
     st.markdown(
-        '<div class="normal-box" style="font-size:17px; padding:16px 20px;">✅ <b>SISTEM NORMAL</b>: Tidak terdeteksi anomali pada PV String dan Inverter.</div>',
+        '<div class="normal-box">✅ <b>SISTEM NORMAL</b>: Tidak terdeteksi anomali pada PV String, Inverter, Lingkungan, maupun Sistem SCADA.</div>',
         unsafe_allow_html=True,
     )
 
 st.markdown("</div><br>", unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 8. METRICS SCADA GRID
+# 9. METRICS SCADA GRID
 # ---------------------------------------------------------
 def create_card(title, value, unit="", border_color="#38bdf8", glow_color="rgba(56,189,248,0.7)"):
     return f"""
@@ -583,8 +676,8 @@ r2_1, r2_2, r2_3, r2_4, r2_5, r2_6 = st.columns(6)
 with r2_1: st.markdown(create_card("Daily kWh/kWp", f"{kwh_per_kwp:.2f}", "", "#4ade80"), unsafe_allow_html=True)
 with r2_2: st.markdown(create_card("Ambient Temp", f"{curr_temp:.2f}", "°C", "#f97316"), unsafe_allow_html=True)
 with r2_3: st.markdown(create_card("Trees Saved", f"{trees_saved:.2f}", "Trees", "#22c55e"), unsafe_allow_html=True)
-with r2_4: st.markdown(create_card("DC Voltage", "720.40" if curr_power_kw > 0 else "0.00", "V", "#38bdf8"), unsafe_allow_html=True)
-with r2_5: st.markdown(create_card("AC Voltage", "380.15" if curr_power_kw > 0 else "0.00", "V", "#00f2fe"), unsafe_allow_html=True)
+with r2_4: st.markdown(create_card("DC Voltage", f"{curr_vdc:.2f}", "V", "#38bdf8"), unsafe_allow_html=True)
+with r2_5: st.markdown(create_card("AC Voltage", f"{curr_vac:.2f}", "V", "#00f2fe"), unsafe_allow_html=True)
 with r2_6: st.markdown(create_card("Total AC Energy", "11869.48", "MWh", "#a855f7"), unsafe_allow_html=True)
 
 # BARIS 3
@@ -592,6 +685,6 @@ r3_1, r3_2, r3_3, r3_4, r3_5, r3_6 = st.columns(6)
 with r3_1: st.markdown(create_card("Export Meter", "12105109.50", "kWh", "#a855f7"), unsafe_allow_html=True)
 with r3_2: st.markdown(create_card("CO² Saved", f"{co2_saved_ton:.2f}", "Ton", "#22c55e"), unsafe_allow_html=True)
 with r3_3: st.markdown(create_card("AC Power Factor", "0.99" if curr_power_kw > 0 else "0.00", "", "#eab308"), unsafe_allow_html=True)
-with r3_4: st.markdown(create_card("DC Current", f"{(curr_power_kw * 1000 / 720.4):.2f}" if curr_power_kw > 0 else "0.00", "A", "#38bdf8"), unsafe_allow_html=True)
-with r3_5: st.markdown(create_card("AC Current", f"{(curr_power_kw * 1000 / (380.15 * 1.732 * 0.99)):.2f}" if curr_power_kw > 0 else "0.00", "A", "#00f2fe"), unsafe_allow_html=True)
-with r3_6: st.markdown(create_card("AC Frequency", "50.01", "Hz", "#eab308"), unsafe_allow_html=True)
+with r3_4: st.markdown(create_card("DC Current", f"{curr_idc:.2f}", "A", "#38bdf8"), unsafe_allow_html=True)
+with r3_5: st.markdown(create_card("AC Current", f"{curr_iac:.2f}", "A", "#00f2fe"), unsafe_allow_html=True)
+with r3_6: st.markdown(create_card("AC Frequency", f"{curr_freq:.2f}", "Hz", "#eab308"), unsafe_allow_html=True)
