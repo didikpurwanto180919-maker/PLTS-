@@ -300,22 +300,23 @@ df_realtime.loc[df_realtime["time"] > now_wib, "ml_power_kw"] = None
 past_rows = df_min[df_min["time"] <= now_wib]
 current_row = past_rows.iloc[-1] if not past_rows.empty else df_min.iloc[0]
 
+curr_time = current_row["time"]
 curr_ghi = current_row["ghi"]
 curr_temp = current_row["temp_ambient"]
 curr_power_kw = current_row["ml_power_kw"] if pd.notna(current_row["ml_power_kw"]) else 0.0
 curr_cell_temp = curr_temp + (NOCT - 20) * (curr_ghi / 800.0) if curr_ghi > 0 else curr_temp
 
-# Tambahan Parameter Real-time Simulasi SCADA
+# Parameter SCADA & Operasional
 curr_vdc = 720.40 if curr_power_kw > 0 else 0.0
 curr_idc = (curr_power_kw * 1000 / curr_vdc) if curr_vdc > 0 else 0.0
 curr_vac = 380.15 if curr_power_kw > 0 else 0.0
 curr_iac = (curr_power_kw * 1000 / (curr_vac * 1.732 * 0.99)) if curr_vac > 0 else 0.0
 curr_freq = 50.01
-curr_thd = 1.8  # % THD
-curr_inv_temp = 42.0  # °C Inverter Internal Temp
-curr_iso_res = 12.5  # M-Ohm (DC Insulation Resistance)
-curr_albedo = 0.22   # Bifacial Albedo Ratio
-scada_data_lag_sec = 0  # Delay SCADA
+curr_thd = 1.8
+curr_inv_temp = 42.0
+curr_iso_res = 12.5
+curr_albedo = 0.22
+scada_data_lag_sec = 0
 
 daily_kwh = df_min[df_min["time"] <= now_wib]["ml_power_kw"].sum() / 60.0
 kwh_per_kwp = daily_kwh / CAPACITY_KWP if CAPACITY_KWP > 0 else 0.0
@@ -331,101 +332,48 @@ pr_daily = min(
 )
 
 # ---------------------------------------------------------
-# 5. INTEGRATED ANOMALY DETECTION ENGINE (ALL 18+ PROBLEMS)
+# 5. INTEGRATED ANOMALY DETECTION ENGINE
 # ---------------------------------------------------------
 warnings_list = []
 
-# --- 1. SISI DC (PV ARRAY & STRING) ---
-# A. Soiling / PV Kotor
+# SISI DC (PV ARRAY & STRING)
 if curr_ghi > 200 and (0.75 * current_row["physics_power_kw"] <= curr_power_kw < 0.88 * current_row["physics_power_kw"]):
-    warnings_list.append("⚠️ **PV Kotor / Soiling Detected**: Penurunan output daya ~12-25% akibat debu atau kotoran. Disarankan pencucian modul.")
+    warnings_list.append("⚠️ **PV Kotor / Soiling Detected**: Penurunan output daya ~12-25% akibat debu/kotoran. Disarankan pencucian modul.")
 
-# B. Shadowing / Bayangan (Permanent & Transient)
 ghi_std_last_15m = past_rows.tail(15)["ghi"].std() if len(past_rows) >= 15 else 0
 if curr_ghi > 300 and ghi_std_last_15m > 120 and curr_power_kw < current_row["physics_power_kw"] * 0.70:
-    warnings_list.append("☁️ **Shadowing / Transient Cloud Passing**: Fluktuasi daya tajam terdeteksi akibat bayangan awan melintas atau vegetasi/bangunan.")
+    warnings_list.append("☁️ **Shadowing / Transient Cloud Passing**: Fluktuasi daya tajam terdeteksi akibat bayangan awan melintas/vegetasi.")
 
-# C. Bypass Diode Failure / Short Circuit
 if curr_vdc > 0 and abs(curr_vdc - (2/3 * V_NOMINAL_STRING)) < 30:
-    warnings_list.append("⚡ **Bypass Diode Failure / Short Circuit**: Tegangan String Vdc drop ~1/3 dari nominal. Terindikasi korsleting diode modul.")
+    warnings_list.append("⚡ **Bypass Diode Failure / Short Circuit**: Tegangan Vdc drop ~1/3 dari nominal. Korsleting diode modul terdeteksi.")
 
-# D. PID / Degradasi Sel (Microcracks & Hotspot) & Jangka Panjang
 if curr_ghi > 400 and curr_vdc < V_NOMINAL_STRING * 0.82 and curr_cell_temp > 55:
     warnings_list.append("🔬 **PID / Microcracks / Hotspot**: Terdeteksi degradasi sel atau retak mikro yang memicu pembentukan hotspot berlebih.")
 
-# E. String Open Circuit / Putus
 if curr_ghi > 200 and curr_idc < 0.5:
-    warnings_list.append("🔌 **String Open Circuit / Arus Putus**: Arus string bernilai 0 A saat Irradiance tinggi (>200 W/m²). Cek MC4 Connector/Fuse.")
+    warnings_list.append("🔌 **String Open Circuit / Arus Putus**: Arus string bernilai 0 A saat Irradiance tinggi (>200 W/m²). Cek Fuse/Connector.")
 
-# F. Mismatched String Length / Wiring Error
-if curr_vdc > 0 and (curr_vdc % 40 > 15 and curr_vdc % 40 < 25) and curr_power_kw < current_row["physics_power_kw"] * 0.85:
-    warnings_list.append("🔀 **Mismatched String / Wiring Error**: Tegangan dan konfigurasi MPPT tidak seragam antar string.")
-
-# G. DC Ground Fault / Isolasi Turun
-if curr_iso_res < 1.0:  # < 1 M-Ohm
+if curr_iso_res < 1.0:
     warnings_list.append("🌧️ **DC Ground Fault / Isolasi Turun**: Resistansi isolasi kabel DC ke bumi drop (< 1 MΩ). Risiko kelembapan/kebocoran arus.")
 
-# H. Kabel Koneksi Kendor
-if curr_ghi > 300 and 0.5 < curr_idc < 3.0 and curr_vdc > 600:
-    warnings_list.append("🛠️ **Kabel / Terminal DC Kendor**: Arus DC tertahan tidak stabil meski tegangan tinggi. Cek kerenggangan terminal/skun.")
-
-# --- 2. SISI INVERTER & SISTEM ELEKTRIKAL (AC) ---
-# A. Grid Over/Under Voltage & Frequency Trip
-if curr_vac > 0 and (curr_vac < 340 or curr_vac > 420 or curr_freq < 49.0 or curr_freq > 51.0):
-    warnings_list.append("🚨 **Grid Fault (Over/Under Voltage & Freq Trip)**: Tegangan/Frekuensi jaringan PLN di luar batas aman. Risk inverter trip.")
-
-# B. Overheating Inverter (Thermal Derating) & Ambient Panas
+# SISI INVERTER & AC
 if curr_temp > 38.0:
     warnings_list.append(f"🌡️ **Ambient Suhu Lingkungan Panas ({curr_temp:.1f}°C)**: Suhu sekeliling tinggi memicu efisiensi pendinginan menurun.")
 if curr_inv_temp > 65.0:
-    warnings_list.append(f"🔥 **Overheating Inverter ({curr_inv_temp:.1f}°C)**: Suhu komponen internal inverter kritikal! Inverter melakukan Thermal Derating/Clipping.")
+    warnings_list.append(f"🔥 **Overheating Inverter ({curr_inv_temp:.1f}°C)**: Suhu internal inverter kritikal! Inverter melakukan Thermal Derating.")
 
-# C. Suhu PV Panas
 if curr_cell_temp > 58.0:
     warnings_list.append(f"🔥 **Suhu Modul PV Panas ({curr_cell_temp:.1f}°C)**: Suhu sel melebihi 58°C, menyebabkan Thermal Loss Penalty bertambah.")
 
-# D. Inverter MPPT Tracking Failure
-if curr_ghi > 400 and curr_power_kw < current_row["physics_power_kw"] * 0.50 and curr_inv_temp < 60:
-    warnings_list.append("🎯 **Inverter MPPT Tracking Failure**: Algoritma MPPT gagal mengunci titik daya maksimum saat fluktuasi cepat.")
-
-# E. Harmonic Distortion (THD) High
-if curr_thd > 5.0:
-    warnings_list.append(f"🌊 **High Harmonic Distortion (THD {curr_thd:.1f}%)**: Distorsi harmonisa gelombang AC melebihi ambang batas PLN (>5%).")
-
-# F. Unbalanced Phase Current/Voltage
-# (Simulasi kondisi fasa)
-unbalanced_phase = False
-if unbalanced_phase:
-    warnings_list.append("⚖️ **Unbalanced Phase Current/Voltage**: Ketidakseimbangan beban / tegangan antar fasa R, S, T pada keluaran AC.")
-
-# G. Inverter Efisiensi Turun / Internal Component Failure
 real_inv_eff = (curr_power_kw / (curr_vdc * curr_idc / 1000)) if (curr_vdc * curr_idc) > 0 else INVERTER_EFF
 if curr_power_kw > 50 and real_inv_eff < 0.75:
-    warnings_list.append(f"📉 **Inverter Efisiensi Drop / Internal Fault ({real_inv_eff*100:.1f}%)**: Efisiensi inverter turun drastis! Indikasi komponen internal/IGBT bermasalah.")
+    warnings_list.append(f"📉 **Inverter Efisiensi Drop ({real_inv_eff*100:.1f}%)**: Efisiensi inverter turun drastis! Indikasi komponen internal/IGBT bermasalah.")
 
-# --- 3. STRUKTURAL & LINGKUNGAN ---
-# A. Module Cracking / Structural Damage
-module_cracked = False
-if module_cracked:
-    warnings_list.append("💥 **Module Cracking / Structural Damage**: Kerusakan fisik modul atau pergeseran posisi mounting akibat angin kencang/benturan.")
-
-# B. Albedo Variation Anomaly (Khusus Bifacial)
 if curr_albedo < 0.12 and curr_ghi > 300:
-    warnings_list.append(f"🌱 **Albedo Variation Anomaly ({curr_albedo:.2f})**: Reflektifitas permukaan tanah turun. Indikasi rumput liar tinggi / genangan air di bawah panel Bifacial.")
+    warnings_list.append(f"🌱 **Albedo Variation Anomaly ({curr_albedo:.2f})**: Reflektifitas permukaan tanah turun. Indikasi rumput liar tinggi / genangan air.")
 
-# C. Pyranometer / Sensor Drift & Degradation
-if curr_ghi > 800 and curr_power_kw < 100:
-    warnings_list.append("📡 **Pyranometer / Sensor Drift Error**: Data Irradiance terlampau tinggi namun Active Power aktual sangat rendah. Sensor perlu kalibrasi.")
-
-# --- 4. KOMUNIKASI & DATA (SCADA / IOT) ---
-# A. Telemetry Data Lag / Freeze
 if scada_data_lag_sec > 60:
-    warnings_list.append(f"⏱️ **Telemetry Data Lag / Freeze ({scada_data_lag_sec}s)**: Pembacaan sensor atau inverter berhenti memperbarui nilai (flatline).")
-
-# B. Communication Loss (Modbus/Ethernet Drop)
-comm_loss = False
-if comm_loss:
-    warnings_list.append("📡 **Communication Loss (Modbus/Ethernet Drop)**: Koneksi data logger ke server ML terputus.")
+    warnings_list.append(f"⏱️ **Telemetry Data Lag / Freeze ({scada_data_lag_sec}s)**: Pembacaan sensor atau inverter berhenti memperbarui nilai.")
 
 # ---------------------------------------------------------
 # 6. HEADER & STATUS BAR
@@ -453,7 +401,7 @@ st.markdown(
 )
 
 # ---------------------------------------------------------
-# 7. LAYOUT UTAMA: GRAFIK & INFORMASI
+# 7. LAYOUT UTAMA & VISUALISASI CHART ATRAKTIF
 # ---------------------------------------------------------
 col_left, col_right = st.columns([1.55, 1.0])
 
@@ -466,59 +414,91 @@ with col_left:
 
     with tab1:
         plt.style.use("dark_background")
-        fig, ax1 = plt.subplots(figsize=(9.0, 4.2))
+        fig, ax1 = plt.subplots(figsize=(9.2, 4.4))
         fig.patch.set_facecolor("#050811")
-        ax1.set_facecolor("#0f172a")
+        ax1.set_facecolor("#0a0f1d")
 
+        # 1. Plot ML Active Power (Glow Line + Area Fill)
+        line1_glow, = ax1.plot(
+            df_realtime["time"],
+            df_realtime["ml_power_kw"],
+            color="#00f2fe",
+            linewidth=6.0,
+            alpha=0.35,
+        )
         line1, = ax1.plot(
             df_realtime["time"],
             df_realtime["ml_power_kw"],
             color="#00f2fe",
-            linewidth=3.0,
-            label="ML Predicted Active Power (kW)",
+            linewidth=2.8,
+            label="ML Active Power (kW)",
         )
         ax1.fill_between(
             df_realtime["time"],
             df_realtime["ml_power_kw"],
             color="#00f2fe",
-            alpha=0.20,
+            alpha=0.22,
         )
 
+        # 2. Plot Physics Baseline
         line3, = ax1.plot(
-            df_realtime["time"],
-            df_realtime["physics_power_kw"],
-            color="#ef4444",
+            df_min["time"],
+            df_min["physics_power_kw"],
+            color="#f43f5e",
             linestyle="--",
             linewidth=2.0,
             alpha=0.85,
-            label="Physics Baseline Ideal (kW)",
+            label="Physics Baseline (kW)",
         )
 
-        ax1.set_ylabel("Active Power (kW)", color="#00f2fe", fontsize=11, weight="bold")
-        ax1.set_ylim(0, 1650)
-
+        # 3. Plot Irradiance (Sumbu Kanan)
         ax2 = ax1.twinx()
         line2, = ax2.plot(
             df_min["time"],
             df_min["ghi"],
             color="#fbbf24",
             linestyle=":",
-            linewidth=2.0,
+            linewidth=2.2,
             alpha=0.9,
             label="Irradiance (W/m²)",
         )
         ax2.set_ylabel("Irradiance (W/m²)", color="#fbbf24", fontsize=11, weight="bold")
-        ax2.set_ylim(0, 1250)
+        ax2.set_ylim(0, 1300)
+        ax2.tick_params(colors="#fbbf24")
+
+        # 4. Highlight & Tampilkan Nilai Real-time Terkini pada Chart
+        if pd.notna(curr_power_kw):
+            # Glowing marker point
+            ax1.plot(curr_time, curr_power_kw, marker="o", markersize=12, color="#00f2fe", alpha=0.4)
+            ax1.plot(curr_time, curr_power_kw, marker="o", markersize=7, color="#ffffff")
+
+            # Annotation Box
+            ax1.annotate(
+                f"LIVE: {curr_power_kw:.1f} kW",
+                xy=(curr_time, curr_power_kw),
+                xytext=(-65, 22),
+                textcoords="offset points",
+                bbox=dict(boxstyle="round,pad=0.5", facecolor="#0284c7", edgecolor="#38bdf8", alpha=0.95),
+                fontsize=11,
+                fontweight="bold",
+                color="#ffffff",
+                arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0.2", color="#38bdf8", lw=2),
+            )
+
+        ax1.set_ylabel("Active Power (kW)", color="#00f2fe", fontsize=11, weight="bold")
+        ax1.set_ylim(0, 1650)
+        ax1.tick_params(colors="#00f2fe")
 
         ax1.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M", tz=wib_tz))
         ax1.xaxis.set_major_locator(mdates.HourLocator(interval=2))
-        ax1.grid(True, linestyle=":", alpha=0.3, color="#64748b")
+        ax1.grid(True, linestyle=":", alpha=0.25, color="#475569")
 
+        # Legenda Modern
         ax1.legend(
             [line1, line3, line2],
             ["ML Active Power (kW)", "Physics Baseline", "Irradiance (W/m²)"],
             loc="lower center",
-            bbox_to_anchor=(0.5, -0.32),
+            bbox_to_anchor=(0.5, -0.28),
             ncol=3,
             frameon=False,
             fontsize=10,
@@ -529,9 +509,9 @@ with col_left:
         plt.close(fig)
 
     with tab2:
-        fig_f, ax_f = plt.subplots(figsize=(9.0, 4.2))
+        fig_f, ax_f = plt.subplots(figsize=(9.2, 4.4))
         fig_f.patch.set_facecolor("#050811")
-        ax_f.set_facecolor("#0f172a")
+        ax_f.set_facecolor("#0a0f1d")
 
         ax_f.plot(
             df_min["time"],
@@ -555,7 +535,7 @@ with col_left:
         ax_f.set_ylim(0, 1650)
         ax_f.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M", tz=wib_tz))
         ax_f.xaxis.set_major_locator(mdates.HourLocator(interval=2))
-        ax_f.grid(True, linestyle=":", alpha=0.3, color="#64748b")
+        ax_f.grid(True, linestyle=":", alpha=0.25, color="#475569")
         ax_f.legend(loc="upper right", frameon=False, fontsize=10)
 
         plt.tight_layout()
@@ -563,9 +543,9 @@ with col_left:
         plt.close(fig_f)
 
     with tab3:
-        fig_xai, ax_xai = plt.subplots(figsize=(9.0, 4.2))
+        fig_xai, ax_xai = plt.subplots(figsize=(9.2, 4.4))
         fig_xai.patch.set_facecolor("#050811")
-        ax_xai.set_facecolor("#0f172a")
+        ax_xai.set_facecolor("#0a0f1d")
         
         if HAS_SHAP:
             explainer = shap.TreeExplainer(ml_model)
@@ -606,7 +586,7 @@ with col_right:
     )
 
 # ---------------------------------------------------------
-# 8. PANEL ANOMALY DETECTION (UKURAN HURUF DIBESARKAN)
+# 8. PANEL ANOMALY DETECTION (UKURAN HURUF LEBIH BESAR)
 # ---------------------------------------------------------
 st.markdown(
     f"""
