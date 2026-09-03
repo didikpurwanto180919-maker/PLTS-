@@ -26,7 +26,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# Autorefresh setiap 10 detik
+# Autorefresh setiap 10 detik agar realtime 24 jam ter-update otomatis
 st_autorefresh(interval=10 * 1000, key="plts_live_refresh_10s")
 
 st.markdown(
@@ -240,7 +240,7 @@ def train_plts_ml_models():
 ml_model, anomaly_model, ml_scaler = train_plts_ml_models()
 
 # ---------------------------------------------------------
-# 4. DATA FETCHING DENGAN SAFE FALLBACK
+# 4. DATA FETCHING (24 JAM KONTINYU)
 # ---------------------------------------------------------
 url = f"https://api.open-meteo.com/v1/forecast?latitude={LAT}&longitude={LON}&hourly=shortwave_radiation,temperature_2m&timezone=auto&start_date={today_str}&end_date={today_str}"
 
@@ -270,7 +270,7 @@ df_hourly = df_hourly.set_index("time")
 df_min = df_hourly.resample("1min").interpolate(method="linear").reset_index()
 df_min["hour"] = df_min["time"].dt.hour + df_min["time"].dt.minute / 60.0
 
-# Predict Output Daya ML
+# Predict Output Daya ML untuk 24 Jam Penuh
 X_live = df_min[["ghi", "temp_ambient", "hour"]]
 X_live_scaled = ml_scaler.transform(X_live)
 df_min["ml_power_kw"] = ml_model.predict(X_live_scaled)
@@ -294,9 +294,7 @@ def physics_power(row):
 
 df_min["physics_power_kw"] = df_min.apply(physics_power, axis=1)
 
-df_realtime = df_min.copy()
-df_realtime.loc[df_realtime["time"] > now_wib, "ml_power_kw"] = None
-
+# Menentukan data histori real-time hingga detik/menit saat ini
 past_rows = df_min[df_min["time"] <= now_wib]
 current_row = past_rows.iloc[-1] if not past_rows.empty else df_min.iloc[0]
 
@@ -304,6 +302,7 @@ curr_time = current_row["time"]
 curr_ghi = current_row["ghi"]
 curr_temp = current_row["temp_ambient"]
 curr_power_kw = current_row["ml_power_kw"] if pd.notna(current_row["ml_power_kw"]) else 0.0
+curr_physics_kw = current_row["physics_power_kw"]
 curr_cell_temp = curr_temp + (NOCT - 20) * (curr_ghi / 800.0) if curr_ghi > 0 else curr_temp
 
 # Parameter SCADA & Operasional
@@ -318,7 +317,7 @@ curr_iso_res = 12.5
 curr_albedo = 0.22
 scada_data_lag_sec = 0
 
-daily_kwh = df_min[df_min["time"] <= now_wib]["ml_power_kw"].sum() / 60.0
+daily_kwh = past_rows["ml_power_kw"].sum() / 60.0
 kwh_per_kwp = daily_kwh / CAPACITY_KWP if CAPACITY_KWP > 0 else 0.0
 co2_saved_ton = daily_kwh * 0.00085
 trees_saved = co2_saved_ton * 40.0
@@ -337,11 +336,11 @@ pr_daily = min(
 warnings_list = []
 
 # SISI DC (PV ARRAY & STRING)
-if curr_ghi > 200 and (0.75 * current_row["physics_power_kw"] <= curr_power_kw < 0.88 * current_row["physics_power_kw"]):
+if curr_ghi > 200 and (0.75 * curr_physics_kw <= curr_power_kw < 0.88 * curr_physics_kw):
     warnings_list.append("⚠️ **PV Kotor / Soiling Detected**: Penurunan output daya ~12-25% akibat debu/kotoran. Disarankan pencucian modul.")
 
 ghi_std_last_15m = past_rows.tail(15)["ghi"].std() if len(past_rows) >= 15 else 0
-if curr_ghi > 300 and ghi_std_last_15m > 120 and curr_power_kw < current_row["physics_power_kw"] * 0.70:
+if curr_ghi > 300 and ghi_std_last_15m > 120 and curr_power_kw < curr_physics_kw * 0.70:
     warnings_list.append("☁️ **Shadowing / Transient Cloud Passing**: Fluktuasi daya tajam terdeteksi akibat bayangan awan melintas/vegetasi.")
 
 if curr_vdc > 0 and abs(curr_vdc - (2/3 * V_NOMINAL_STRING)) < 30:
@@ -401,7 +400,7 @@ st.markdown(
 )
 
 # ---------------------------------------------------------
-# 7. LAYOUT UTAMA & VISUALISASI CHART ATRAKTIF
+# 7. LAYOUT UTAMA & VISUALISASI CHART PERBAIKAN (24 JAM CONTINUOUS)
 # ---------------------------------------------------------
 col_left, col_right = st.columns([1.55, 1.0])
 
@@ -414,44 +413,46 @@ with col_left:
 
     with tab1:
         plt.style.use("dark_background")
-        fig, ax1 = plt.subplots(figsize=(9.2, 4.4))
+        fig, ax1 = plt.subplots(figsize=(9.2, 4.5))
         fig.patch.set_facecolor("#050811")
         ax1.set_facecolor("#0a0f1d")
 
-        # 1. Plot ML Active Power (Glow Line + Area Fill)
+        # 1. Kurva ML Active Power (24 Jam Kontinyu)
         line1_glow, = ax1.plot(
-            df_realtime["time"],
-            df_realtime["ml_power_kw"],
+            df_min["time"],
+            df_min["ml_power_kw"],
             color="#00f2fe",
-            linewidth=6.0,
+            linewidth=5.0,
             alpha=0.35,
         )
         line1, = ax1.plot(
-            df_realtime["time"],
-            df_realtime["ml_power_kw"],
+            df_min["time"],
+            df_min["ml_power_kw"],
             color="#00f2fe",
             linewidth=2.8,
             label="ML Active Power (kW)",
         )
+        
+        # Area Shading Transparan untuk Histori sampai detik ini
         ax1.fill_between(
-            df_realtime["time"],
-            df_realtime["ml_power_kw"],
+            past_rows["time"],
+            past_rows["ml_power_kw"],
             color="#00f2fe",
             alpha=0.22,
         )
 
-        # 2. Plot Physics Baseline
+        # 2. Kurva Physics Baseline (24 Jam Kontinyu)
         line3, = ax1.plot(
             df_min["time"],
             df_min["physics_power_kw"],
             color="#f43f5e",
             linestyle="--",
-            linewidth=2.0,
-            alpha=0.85,
+            linewidth=2.2,
+            alpha=0.9,
             label="Physics Baseline (kW)",
         )
 
-        # 3. Plot Irradiance (Sumbu Kanan)
+        # 3. Kurva Irradiance (Sumbu Kanan - 24 Jam Kontinyu)
         ax2 = ax1.twinx()
         line2, = ax2.plot(
             df_min["time"],
@@ -466,23 +467,36 @@ with col_left:
         ax2.set_ylim(0, 1300)
         ax2.tick_params(colors="#fbbf24")
 
-        # 4. Highlight & Tampilkan Nilai Real-time Terkini pada Chart
+        # 4. Marker Point & Annotation Box Nilai Angka LIVE (ML) & BASELINE
         if pd.notna(curr_power_kw):
-            # Glowing marker point
+            # Glowing marker point pada titik realtime
             ax1.plot(curr_time, curr_power_kw, marker="o", markersize=12, color="#00f2fe", alpha=0.4)
             ax1.plot(curr_time, curr_power_kw, marker="o", markersize=7, color="#ffffff")
 
-            # Annotation Box
+            # Annotation Box Atas: Real-time ML Power (Warna Cyan/Blue Glow)
             ax1.annotate(
                 f"LIVE: {curr_power_kw:.1f} kW",
                 xy=(curr_time, curr_power_kw),
-                xytext=(-65, 22),
+                xytext=(-85, 30),
                 textcoords="offset points",
                 bbox=dict(boxstyle="round,pad=0.5", facecolor="#0284c7", edgecolor="#38bdf8", alpha=0.95),
                 fontsize=11,
                 fontweight="bold",
                 color="#ffffff",
                 arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0.2", color="#38bdf8", lw=2),
+            )
+
+            # Annotation Box Bawah: Physics Baseline Value (Warna Red/Crimson Glow)
+            ax1.annotate(
+                f"BASE: {curr_physics_kw:.1f} kW",
+                xy=(curr_time, curr_physics_kw),
+                xytext=(-85, -45),
+                textcoords="offset points",
+                bbox=dict(boxstyle="round,pad=0.5", facecolor="#9f1239", edgecolor="#f43f5e", alpha=0.95),
+                fontsize=11,
+                fontweight="bold",
+                color="#ffffff",
+                arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=-0.2", color="#f43f5e", lw=2),
             )
 
         ax1.set_ylabel("Active Power (kW)", color="#00f2fe", fontsize=11, weight="bold")
@@ -509,7 +523,7 @@ with col_left:
         plt.close(fig)
 
     with tab2:
-        fig_f, ax_f = plt.subplots(figsize=(9.2, 4.4))
+        fig_f, ax_f = plt.subplots(figsize=(9.2, 4.5))
         fig_f.patch.set_facecolor("#050811")
         ax_f.set_facecolor("#0a0f1d")
 
@@ -543,7 +557,7 @@ with col_left:
         plt.close(fig_f)
 
     with tab3:
-        fig_xai, ax_xai = plt.subplots(figsize=(9.2, 4.4))
+        fig_xai, ax_xai = plt.subplots(figsize=(9.2, 4.5))
         fig_xai.patch.set_facecolor("#050811")
         ax_xai.set_facecolor("#0a0f1d")
         
@@ -616,7 +630,7 @@ st.markdown(
 )
 
 if warnings_list:
-    # 🔊 HTML5 / Web Audio API Synthesizer Alarm Sound Generator (Bunyi Sirene Peringatan Laptop)
+    # HTML5 / Web Audio API Synthesizer Alarm Sound Generator (Bunyi Sirene Peringatan Laptop)
     alarm_html = """
     <script>
     function playAlarmSound() {
@@ -641,7 +655,7 @@ if warnings_list:
             console.log("Audio play error: " + e);
         }
     }
-    // Bunyikan Alarm 2x Pulse
+    // Bunyikan Alarm 2x Pulse saat anomali terdeteksi
     playAlarmSound();
     setTimeout(playAlarmSound, 600);
     </script>
