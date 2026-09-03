@@ -6,12 +6,11 @@ import pandas as pd
 import pytz
 import requests
 from sklearn.ensemble import GradientBoostingRegressor, IsolationForest
-from sklearn.metrics import r2_score
 from sklearn.preprocessing import StandardScaler
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
-# Optional Import SHAP (Anti Crash jika module belum terinstal)
+# Safe Import SHAP (Mencegah Crash jika library belum terinstal di Streamlit Cloud)
 try:
     import shap
     HAS_SHAP = True
@@ -27,6 +26,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# Autorefresh setiap 10 detik
 st_autorefresh(interval=10 * 1000, key="plts_live_refresh_10s")
 
 st.markdown(
@@ -255,7 +255,7 @@ try:
         "temp_ambient": hourly["temperature_2m"],
     })
 except Exception:
-    # Fallback Data jika API error / rate limited
+    # Fallback Data otomatis jika API error / rate limited
     times = pd.date_range(start=f"{today_str} 00:00", periods=24, freq="h")
     ghi_sim = [0, 0, 0, 0, 0, 0, 80, 300, 650, 880, 980, 1050, 990, 820, 580, 320, 90, 5, 0, 0, 0, 0, 0, 0]
     temp_sim = [24, 24, 23, 23, 24, 25, 27, 29, 31, 33, 34, 35, 35, 34, 33, 31, 29, 27, 26, 25, 25, 24, 24, 24]
@@ -270,7 +270,7 @@ df_hourly = df_hourly.set_index("time")
 df_min = df_hourly.resample("1min").interpolate(method="linear").reset_index()
 df_min["hour"] = df_min["time"].dt.hour + df_min["time"].dt.minute / 60.0
 
-# Predict
+# Predict Output Daya ML
 X_live = df_min[["ghi", "temp_ambient", "hour"]]
 X_live_scaled = ml_scaler.transform(X_live)
 df_min["ml_power_kw"] = ml_model.predict(X_live_scaled)
@@ -322,7 +322,7 @@ pr_daily = min(
     ),
 )
 
-# Diagnostics
+# Diagnostics Anomali
 warnings_list = []
 if curr_ghi > 200:
     if curr_power_kw < current_row["physics_power_kw"] * 0.88:
@@ -513,29 +513,29 @@ with col_right:
     )
 
 # ---------------------------------------------------------
-# 7. ANOMALY DETECTION ENGINE
+# 7. ANOMALY DETECTION ENGINE (UKURAN HURUF DIBESARKAN)
 # ---------------------------------------------------------
 st.markdown(
     f"""
 <div class="ml-panel">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-        <span style="font-weight:900; color:#38bdf8; font-size:16px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
+        <span style="font-weight:900; color:#38bdf8; font-size:20px; letter-spacing:0.5px;">
             🤖 ML ANOMALY DETECTION & PERFORMANCE RATIO (PR) ENGINE
         </span>
-        <span class="ml-badge">DETEKSI REAL-TIME</span>
+        <span class="ml-badge" style="font-size:14px; padding:6px 14px; font-weight:800;">DETEKSI REAL-TIME</span>
     </div>
-    <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; font-size: 13px;">
+    <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; font-size: 15px;">
         <div>
-            <div style="color:#94a3b8; font-weight:bold;">ESTIMASI TOTAL ENERGY</div>
-            <div style="color:#38bdf8; font-weight:900; font-size:18px;">{(df_min['ml_power_kw'].sum()/60.0):.2f} kWh</div>
+            <div style="color:#cbd5e1; font-weight:700; font-size:15px; letter-spacing:0.5px;">ESTIMASI TOTAL ENERGY</div>
+            <div style="color:#38bdf8; font-weight:900; font-size:26px; margin-top:4px;">{(df_min['ml_power_kw'].sum()/60.0):.2f} kWh</div>
         </div>
         <div>
-            <div style="color:#94a3b8; font-weight:bold;">PERFORMANCE RATIO</div>
-            <div style="color:#22c55e; font-weight:900; font-size:18px;">{pr_daily:.2f} %</div>
+            <div style="color:#cbd5e1; font-weight:700; font-size:15px; letter-spacing:0.5px;">PERFORMANCE RATIO</div>
+            <div style="color:#22c55e; font-weight:900; font-size:26px; margin-top:4px;">{pr_daily:.2f} %</div>
         </div>
         <div>
-            <div style="color:#94a3b8; font-weight:bold;">THERMAL LOSS PENALTY</div>
-            <div style="color:#f59e0b; font-weight:900; font-size:18px;">{-TEMP_COEFF * (curr_cell_temp - 25) * 100 if curr_cell_temp > 25 else 0.0:.2f} %</div>
+            <div style="color:#cbd5e1; font-weight:700; font-size:15px; letter-spacing:0.5px;">THERMAL LOSS PENALTY</div>
+            <div style="color:#f59e0b; font-weight:900; font-size:26px; margin-top:4px;">{-TEMP_COEFF * (curr_cell_temp - 25) * 100 if curr_cell_temp > 25 else 0.0:.2f} %</div>
         </div>
     </div>
 """,
@@ -544,10 +544,13 @@ st.markdown(
 
 if warnings_list:
     for warn in warnings_list:
-        st.markdown(f'<div class="warning-box">{warn}</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="warning-box" style="font-size:17px; padding:16px 20px;">{warn}</div>', 
+            unsafe_allow_html=True
+        )
 else:
     st.markdown(
-        '<div class="normal-box">✅ **SISTEM NORMAL**: Tidak terdeteksi anomali pada PV String dan Inverter.</div>',
+        '<div class="normal-box" style="font-size:17px; padding:16px 20px;">✅ <b>SISTEM NORMAL</b>: Tidak terdeteksi anomali pada PV String dan Inverter.</div>',
         unsafe_allow_html=True,
     )
 
