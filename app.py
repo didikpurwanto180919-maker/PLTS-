@@ -1,9 +1,13 @@
 from datetime import datetime
+import os
+import joblib
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import pytz
 import requests
+from sklearn.ensemble import RandomForestRegressor
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
@@ -19,7 +23,7 @@ st.set_page_config(
 # Auto-refresh tiap 10 detik
 st_autorefresh(interval=10 * 1000, key="plts_live_refresh_10s")
 
-# Inject Custom CSS dengan Efek Glow/Neon pada Angka & Header
+# Inject Custom CSS
 st.markdown(
     """
 <style>
@@ -82,7 +86,6 @@ st.markdown(
         letter-spacing: 0.5px;
     }
 
-    /* EFEK NEON GLOW PADA ANGKA NUMERIK */
     .scada-value {
         font-size: 25px;
         font-weight: 800;
@@ -118,7 +121,7 @@ st.markdown(
 )
 
 # ---------------------------------------------------------
-# 2. PARAMETER TEKNIS & INTEGRASI API
+# 2. MACHINE LEARNING MODEL MANAGEMENT
 # ---------------------------------------------------------
 LAT = -7.650046
 LON = 113.028266
@@ -127,7 +130,44 @@ CAPACITY_KWP = 1500.0
 TEMP_COEFF = -0.004
 NOCT = 45
 INVERTER_EFF = 0.85
+MODEL_FILE = "ml_plts_model.pkl"
 
+
+# Fungsi untuk melatih model ML jika file belum ada
+@st.cache_resource
+def load_or_train_ml_model():
+  if os.path.exists(MODEL_FILE):
+    return joblib.load(MODEL_FILE)
+
+  # Sintesis data historis untuk pelatihan awal (Training Pipeline)
+  np.random.seed(42)
+  samples = 5000
+  ghi_sim = np.random.uniform(0, 1100, samples)
+  temp_sim = np.random.uniform(22, 38, samples)
+
+  # Target Power dengan degradasi efisiensi non-linear + noise sensor nyata
+  t_cell = temp_sim + (NOCT - 20) * (ghi_sim / 800.0)
+  t_factor = 1 + TEMP_COEFF * (t_cell - 25)
+  power_base = CAPACITY_KWP * (ghi_sim / 1000.0) * t_factor * INVERTER_EFF
+  noise = np.random.normal(0, 15, samples)
+  power_target = np.clip(power_base + noise, 0, CAPACITY_KWP)
+
+  X = pd.DataFrame({"ghi": ghi_sim, "temp_ambient": temp_sim})
+  y = power_target
+
+  # Train Random Forest Regressor
+  model = RandomForestRegressor(n_estimators=100, random_state=42)
+  model.fit(X, y)
+
+  joblib.dump(model, MODEL_FILE)
+  return model
+
+
+ml_model = load_or_train_ml_model()
+
+# ---------------------------------------------------------
+# 3. INTEGRASI API & PREDIKSI MODEL ML
+# ---------------------------------------------------------
 wib_tz = pytz.timezone("Asia/Jakarta")
 now_wib = datetime.now(wib_tz)
 today_str = now_wib.strftime("%Y-%m-%d")
@@ -154,18 +194,12 @@ try:
   df_hourly = df_hourly.set_index("time")
   df_min = df_hourly.resample("1min").interpolate(method="linear").reset_index()
 
-  def calc_power(row):
-    ghi = row["ghi"]
-    temp = row["temp_ambient"]
-    if pd.isna(ghi) or ghi <= 0:
-      return 0.0
-    t_cell = temp + (NOCT - 20) * (ghi / 800.0)
-    t_factor = 1 + TEMP_COEFF * (t_cell - 25)
-    p_mw = CAPACITY_MWP * (ghi / 1000.0) * t_factor * INVERTER_EFF
-    return max(0.0, p_mw)
-
-  df_min["power_mw"] = df_min.apply(calc_power, axis=1)
-  df_min["power_kw"] = df_min["power_mw"] * 1000.0
+  # Prediksi Daya menggunakan Machine Learning (Random Forest)
+  X_pred = df_min[["ghi", "temp_ambient"]]
+  df_min["power_kw"] = ml_model.predict(X_pred)
+  df_min["power_kw"] = df_min.apply(
+      lambda r: 0.0 if r["ghi"] <= 5 else r["power_kw"], axis=1
+  )
 
   df_realtime = df_min.copy()
   df_realtime.loc[df_realtime["time"] > now_wib, "power_kw"] = None
@@ -184,14 +218,15 @@ try:
   trees_saved = co2_saved_ton * 40.0
 
 except Exception as e:
-  st.error(f"Gagal memuat data dari API: {e}")
+  st.error(f"Gagal memuat data atau memproses Machine Learning: {e}")
   st.stop()
 
 # ---------------------------------------------------------
-# 3. HEADER & BANNER OVERVIEW (JUDUL DIPERBARUI)
+# 4. HEADER & BANNER OVERVIEW
 # ---------------------------------------------------------
 st.markdown(
-    "<h2 class='main-header'>MACHINE LEARNING OPTIMASI PRODUKSI PLTS LANDBASE 1.5 MWp</h2>",
+    "<h2 class='main-header'>MACHINE LEARNING OPTIMASI PRODUKSI PLTS LANDBASE 1.5"
+    " MWp</h2>",
     unsafe_allow_html=True,
 )
 st.markdown(
@@ -203,7 +238,7 @@ st.markdown(
     f"""
 <div class="banner-bar">
     <span><span style="color:#cbd5e1;">CCD :</span> <b style="color:#38bdf8; font-size:18px;">66</b></span>
-    <span style="color:#f8fafc; letter-spacing:2px; font-size:18px;">OVERVIEW MONITORING</span>
+    <span style="color:#f8fafc; letter-spacing:2px; font-size:18px;">OVERVIEW MONITORING (ML PREDICTION ACTIVE)</span>
     <span style="font-size:16px;">{now_wib.strftime('%Y-%m-%d %H:%M:%S')}</span>
 </div>
 """,
@@ -211,7 +246,7 @@ st.markdown(
 )
 
 # ---------------------------------------------------------
-# 4. GRAFIK DENGAN TEMA GELAP HIGH CONTRAST
+# 5. GRAFIK DENGAN TEMA GELAP HIGH CONTRAST
 # ---------------------------------------------------------
 col_left, col_right = st.columns([1.4, 1.0])
 
@@ -221,13 +256,13 @@ with col_left:
   fig.patch.set_facecolor("#0b0f19")
   ax1.set_facecolor("#0f172a")
 
-  # Active Power
+  # Active Power (ML Model Output)
   (line1,) = ax1.plot(
       df_realtime["time"],
       df_realtime["power_kw"],
       color="#00f2fe",
       linewidth=3.0,
-      label="Active Power (kW)",
+      label="ML Active Power (kW)",
   )
   ax1.fill_between(
       df_realtime["time"],
@@ -266,7 +301,7 @@ with col_left:
   ax2.spines["top"].set_visible(False)
 
   plt.title(
-      "Active Power & Irradiance Trend",
+      "Active Power (ML Output) & Irradiance Trend",
       fontsize=13,
       fontweight="bold",
       color="#f8fafc",
@@ -276,7 +311,7 @@ with col_left:
 
   ax1.legend(
       [line1, line2],
-      ["Active Power (kW)", "Irradiance (W/m²)"],
+      ["ML Active Power (kW)", "Irradiance (W/m²)"],
       loc="lower center",
       bbox_to_anchor=(0.5, -0.27),
       ncol=2,
@@ -300,7 +335,8 @@ with col_right:
             Jawa Timur 67186
         </p>
         <table class="info-table" style="width:100%; border-collapse:collapse;">
-            <tr><td><b>Status</b></td><td>: <span style="background-color:#166534; color:#4ade80; padding:3px 10px; border-radius:12px; font-weight:bold; font-size:12px;">● ONLINE</span></td></tr>
+            <tr><td><b>Status</b></td><td>: <span style="background-color:#166534; color:#4ade80; padding:3px 10px; border-radius:12px; font-weight:bold; font-size:12px;">● ML ONLINE</span></td></tr>
+            <tr><td><b>Model Type</b></td><td>: <span style="color:#38bdf8; font-weight:600;">Random Forest Regressor</span></td></tr>
             <tr><td><b>Total String Capacity</b></td><td>: <span style="color:#f8fafc; font-weight:600;">1507.00 kWp</span></td></tr>
             <tr><td><b>Grid Connection Date</b></td><td>: <span style="color:#f8fafc; font-weight:600;">19 August 2021</span></td></tr>
             <tr><td><b>Longitude & Latitude</b></td><td>: <span style="color:#f8fafc; font-weight:600;">{LAT} & {LON}</span></td></tr>
@@ -315,11 +351,10 @@ with col_right:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ---------------------------------------------------------
-# 5. METRICS GRID DENGAN WARNA WARNI EFEK NEON
-# ---------------------------------------------------------
 
-
+# ---------------------------------------------------------
+# 6. METRICS GRID DENGAN WARNA WARNI EFEK NEON
+# ---------------------------------------------------------
 def create_card(
     title, value, unit="", border_color="#38bdf8", glow_color="rgba(56,189,248,0.7)"
 ):
